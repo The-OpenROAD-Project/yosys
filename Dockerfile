@@ -20,8 +20,6 @@ RUN apt-get update -qq \
 
 #---
 
-FROM base AS build
-
 RUN apt-get update -qq \
  && DEBIAN_FRONTEND=noninteractive apt-get -y install --no-install-recommends \
     bison \
@@ -33,6 +31,8 @@ RUN apt-get update -qq \
     pkg-config \
  && apt-get autoclean && apt-get clean && apt-get -y autoremove \
  && rm -rf /var/lib/apt/lists
+
+FROM base AS build
 
 COPY . /yosys
 
