@@ -136,7 +136,7 @@ bumpversion:
 # is just a symlink to your actual ABC working directory, as 'make mrproper'
 # will remove the 'abc' directory and you do not want to accidentally
 # delete your work on ABC..
-ABCREV = 62180f3
+ABCREV = e9b4876
 ABCPULL = 1
 ABCURL ?= https://github.com/berkeley-abc/abc
 #ABCURL ?= https://github.com/YosysHQ/abc
