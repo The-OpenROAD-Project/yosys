@@ -99,7 +99,11 @@ static IdString derive_name_from_cell_output_wire(const RTLIL::Cell *cell)
 		}
 	}
 
-	return name + cell->type.str();
+	//return name + cell->type.str();
+        
+        // we need the trailing "_reg" here because names need to be unique across _all_
+        // wires, memories, cells, and processes inside a module.
+	return name + "_reg";
 }
 
 struct RenamePass : public Pass {
