@@ -1,0 +1,10 @@
+Source: yosys
+Maintainer: Vitor Bandeira <vvbandeira@precisioninno.com>
+Build-Depends: debhelper-compat (= 12)
+Standards-Version: 4.5.1
+Rules-Requires-Root: no
+
+Package: yosys
+Architecture: amd64
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Description: Yosys.

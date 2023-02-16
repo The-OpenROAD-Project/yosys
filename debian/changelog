@@ -1,0 +1,5 @@
+yosys (0.21) UNRELEASED; urgency=low
+
+  * Initial debian package release
+
+ -- Vitor Bandeira <vvbandeira@precisioninno.com>  Wed, 16 Feb 2023 13:01:27 -0300
