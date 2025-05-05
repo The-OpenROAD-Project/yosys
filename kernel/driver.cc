@@ -17,6 +17,9 @@
  *
  */
 
+ #pragma message("__DATE__ = " __DATE__)
+ #pragma message("__TIME__ = " __TIME__)
+
 #include "kernel/yosys.h"
 #include "kernel/hashlib.h"
 #include "libs/sha1/sha1.h"
