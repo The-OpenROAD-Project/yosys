@@ -384,4 +384,125 @@ std::string escape_filename_spaces(const std::string& filename)
 	return out;
 }
 
+void format_emit_unescaped(std::string &result, std::string_view fmt)
+{
+	result.reserve(result.size() + fmt.size());
+	for (size_t i = 0; i < fmt.size(); ++i) {
+		char ch = fmt[i];
+		result.push_back(ch);
+		if (ch == '%' && i + 1 < fmt.size() && fmt[i + 1] == '%') {
+			++i;
+		}
+	}
+}
+
+std::string unescape_format_string(std::string_view fmt)
+{
+	std::string result;
+	format_emit_unescaped(result, fmt);
+	return result;
+}
+
+static std::string string_view_stringf(std::string_view spec, ...)
+{
+	va_list ap;
+	va_start(ap, spec);
+	std::string result = vstringf(std::string(spec).c_str(), ap);
+	va_end(ap);
+	return result;
+}
+
+template <typename Arg>
+static void format_emit_stringf(std::string &result, std::string_view spec, int *dynamic_ints,
+	DynamicIntCount num_dynamic_ints, Arg arg)
+{
+	// Delegate nontrivial formats to the C library.
+	switch (num_dynamic_ints) {
+	case DynamicIntCount::NONE:
+		result += string_view_stringf(spec, arg);
+		return;
+	case DynamicIntCount::ONE:
+		result += string_view_stringf(spec, dynamic_ints[0], arg);
+		return;
+	case DynamicIntCount::TWO:
+		result += string_view_stringf(spec, dynamic_ints[0], dynamic_ints[1], arg);
+		return;
+	}
+	YOSYS_ABORT("Internal error");
+}
+
+void format_emit_long_long(std::string &result, std::string_view spec, int *dynamic_ints,
+	DynamicIntCount num_dynamic_ints, long long arg)
+{
+	if (spec == "%d") {
+		// Format checking will have guaranteed num_dynamic_ints == 0.
+		result += std::to_string(static_cast<int>(arg));
+		return;
+	}
+	format_emit_stringf(result, spec, dynamic_ints, num_dynamic_ints, arg);
+}
+
+void format_emit_unsigned_long_long(std::string &result, std::string_view spec, int *dynamic_ints,
+	DynamicIntCount num_dynamic_ints, unsigned long long arg)
+{
+	if (spec == "%u") {
+		// Format checking will have guaranteed num_dynamic_ints == 0.
+		result += std::to_string(static_cast<unsigned int>(arg));
+		return;
+	}
+	if (spec == "%c") {
+		result += static_cast<char>(arg);
+		return;
+	}
+	format_emit_stringf(result, spec, dynamic_ints, num_dynamic_ints, arg);
+}
+
+void format_emit_double(std::string &result, std::string_view spec, int *dynamic_ints,
+	DynamicIntCount num_dynamic_ints, double arg)
+{
+	format_emit_stringf(result, spec, dynamic_ints, num_dynamic_ints, arg);
+}
+
+void format_emit_char_ptr(std::string &result, std::string_view spec, int *dynamic_ints,
+	DynamicIntCount num_dynamic_ints, const char *arg)
+{
+	if (spec == "%s") {
+		// Format checking will have guaranteed num_dynamic_ints == 0.
+		result += arg;
+		return;
+	}
+	format_emit_stringf(result, spec, dynamic_ints, num_dynamic_ints, arg);
+}
+
+void format_emit_string(std::string &result, std::string_view spec, int *dynamic_ints,
+	DynamicIntCount num_dynamic_ints, const std::string &arg)
+{
+	if (spec == "%s") {
+		// Format checking will have guaranteed num_dynamic_ints == 0.
+		result += arg;
+		return;
+	}
+	format_emit_stringf(result, spec, dynamic_ints, num_dynamic_ints, arg.c_str());
+}
+
+void format_emit_string_view(std::string &result, std::string_view spec, int *dynamic_ints,
+	DynamicIntCount num_dynamic_ints, std::string_view arg)
+{
+	if (spec == "%s") {
+		// Format checking will have guaranteed num_dynamic_ints == 0.
+		// We can output the string without creating a temporary copy.
+		result += arg;
+		return;
+	}
+	// Delegate nontrivial formats to the C library. We need to construct
+	// a temporary string to ensure null termination.
+	format_emit_stringf(result, spec, dynamic_ints, num_dynamic_ints, std::string(arg).c_str());
+}
+
+void format_emit_void_ptr(std::string &result, std::string_view spec, int *dynamic_ints,
+	DynamicIntCount num_dynamic_ints, const void *arg)
+{
+	format_emit_stringf(result, spec, dynamic_ints, num_dynamic_ints, arg);
+}
+
 YOSYS_NAMESPACE_END

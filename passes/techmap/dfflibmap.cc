@@ -92,7 +92,7 @@ static bool parse_next_state(const LibertyAst *cell, const LibertyAst *attr, std
 	auto expr = attr->value;
 	auto cell_name = cell->args[0];
 
-	for (size_t pos = expr.find_first_of("\" \t"); pos != std::string::npos; pos = expr.find_first_of("\" \t"))
+	for (size_t pos = expr.find_first_of("\"\t"); pos != std::string::npos; pos = expr.find_first_of("\"\t"))
 		expr.erase(pos, 1);
 
 	// if this isn't an enable flop, the next_state variable is usually just the input pin name.
@@ -117,6 +117,7 @@ static bool parse_next_state(const LibertyAst *cell, const LibertyAst *attr, std
 	// the next_state variable isn't just a pin name; perhaps this is an enable?
 	auto helper = LibertyExpression::Lexer(expr);
 	auto tree = LibertyExpression::parse(helper);
+	// log_debug("liberty expression:\n%s\n", tree.str().c_str());
 
 	if (tree.kind == LibertyExpression::Kind::EMPTY) {
 		if (!warned_cells.count(cell_name)) {
@@ -392,9 +393,21 @@ static void find_cell_sr(std::vector<const LibertyAst *> cells, IdString cell_ty
 			continue;
 		if (!parse_next_state(cell, ff->find("next_state"), cell_next_pin, cell_next_pol, cell_enable_pin, cell_enable_pol))
 			continue;
-		if (!parse_pin(cell, ff->find("preset"), cell_set_pin, cell_set_pol) || cell_set_pol != setpol)
+
+		if (!parse_pin(cell, ff->find("preset"), cell_set_pin, cell_set_pol))
 			continue;
-		if (!parse_pin(cell, ff->find("clear"), cell_clr_pin, cell_clr_pol) || cell_clr_pol != clrpol)
+		if (!parse_pin(cell, ff->find("clear"), cell_clr_pin, cell_clr_pol))
+			continue;
+		if (!cell_next_pol) {
+			// next_state is negated
+			// we later propagate this inversion to the output,
+			// which requires the swap of set and reset
+			std::swap(cell_set_pin, cell_clr_pin);
+			std::swap(cell_set_pol, cell_clr_pol);
+		}
+		if (cell_set_pol != setpol)
+			continue;
+		if (cell_clr_pol != clrpol)
 			continue;
 
 		std::map<std::string, char> this_cell_ports;
@@ -432,12 +445,14 @@ static void find_cell_sr(std::vector<const LibertyAst *> cells, IdString cell_ty
 				for (size_t pos = value.find_first_of("\" \t"); pos != std::string::npos; pos = value.find_first_of("\" \t"))
 					value.erase(pos, 1);
 				if (value == ff->args[0]) {
+					// next_state negation propagated to output
 					this_cell_ports[pin->args[0]] = cell_next_pol ? 'Q' : 'q';
 					if (cell_next_pol)
 						found_noninv_output = true;
 					found_output = true;
 				} else
 				if (value == ff->args[1]) {
+					// next_state negation propagated to output
 					this_cell_ports[pin->args[0]] = cell_next_pol ? 'q' : 'Q';
 					if (!cell_next_pol)
 						found_noninv_output = true;

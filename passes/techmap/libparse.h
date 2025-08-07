@@ -26,6 +26,11 @@
 #include <vector>
 #include <set>
 
+/**
+ * This file is likely to change in the near future.
+ * Rely on it in your plugins at your own peril
+ */
+
 namespace Yosys
 {
 	struct LibertyAst
@@ -88,6 +93,9 @@ namespace Yosys
 		static LibertyExpression parse(Lexer &s, int min_prio = 0);
 		void get_pin_names(pool<std::string>& names);
 		bool eval(dict<std::string, bool>& values);
+		std::string str(int indent = 0);
+	private:
+		static bool is_nice_binop(char c);
 	};
 
 	class LibertyInputStream {

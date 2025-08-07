@@ -35,7 +35,7 @@ YOSYS_NAMESPACE_BEGIN
 bool RTLIL::IdString::destruct_guard_ok = false;
 RTLIL::IdString::destruct_guard_t RTLIL::IdString::destruct_guard;
 std::vector<char*> RTLIL::IdString::global_id_storage_;
-dict<char*, int> RTLIL::IdString::global_id_index_;
+std::unordered_map<std::string_view, int> RTLIL::IdString::global_id_index_;
 #ifndef YOSYS_NO_IDS_REFCNT
 std::vector<int> RTLIL::IdString::global_refcount_storage_;
 std::vector<int> RTLIL::IdString::global_free_idx_list_;
@@ -384,7 +384,7 @@ bool RTLIL::Const::convertible_to_int(bool is_signed) const
 {
 	auto size = get_min_size(is_signed);
 
-	if (size <= 0)
+	if (size < 0)
 		return false;
 
 	// If it fits in 31 bits it is definitely convertible
@@ -1137,6 +1137,12 @@ void RTLIL::Design::sort()
 	modules_.sort(sort_by_id_str());
 	for (auto &it : modules_)
 		it.second->sort();
+}
+
+void RTLIL::Design::sort_modules()
+{
+	scratchpad.sort();
+	modules_.sort(sort_by_id_str());
 }
 
 void RTLIL::Design::check()
@@ -5509,6 +5515,9 @@ bool RTLIL::SigSpec::convertible_to_int(bool is_signed) const
 	if (!is_fully_const())
 		return false;
 
+	if (empty())
+		return true;
+
 	return RTLIL::Const(chunks_[0].data).convertible_to_int(is_signed);
 }
 
@@ -5520,6 +5529,9 @@ std::optional<int> RTLIL::SigSpec::try_as_int(bool is_signed) const
 	if (!is_fully_const())
 		return std::nullopt;
 
+	if (empty())
+		return 0;
+
 	return RTLIL::Const(chunks_[0].data).try_as_int(is_signed);
 }
 
@@ -5529,7 +5541,10 @@ int RTLIL::SigSpec::as_int_saturating(bool is_signed) const
 
 	pack();
 	log_assert(is_fully_const() && GetSize(chunks_) <= 1);
-	log_assert(!empty());
+
+	if (empty())
+		return 0;
+
 	return RTLIL::Const(chunks_[0].data).as_int_saturating(is_signed);
 }
 
