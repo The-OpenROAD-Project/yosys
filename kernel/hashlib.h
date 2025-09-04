@@ -12,6 +12,7 @@
 #ifndef HASHLIB_H
 #define HASHLIB_H
 
+#include <array>
 #include <stdexcept>
 #include <algorithm>
 #include <optional>
@@ -100,7 +101,7 @@ private:
 		uint32_t hash = ((a << 5) + a) ^ b;
 		return hash;
 	}
-	public:
+public:
 	void hash32(uint32_t i) {
 		state = djb2_xor(i, state);
 		state = mkhash_xorshift(fudge ^ state);
@@ -127,6 +128,7 @@ private:
 		*this = hash_ops<T>::hash_into(t, *this);
 	}
 
+	[[deprecated]]
 	void commutative_eat(hash_t t) {
 		state ^= t;
 	}
@@ -177,58 +179,58 @@ struct hash_ops {
 };
 
 template<typename P, typename Q> struct hash_ops<std::pair<P, Q>> {
-	static inline bool cmp(std::pair<P, Q> a, std::pair<P, Q> b) {
+	static inline bool cmp(const std::pair<P, Q> &a, const std::pair<P, Q> &b) {
 		return a == b;
 	}
-	[[nodiscard]] static inline Hasher hash_into(std::pair<P, Q> a, Hasher h) {
+	[[nodiscard]] static inline Hasher hash_into(const std::pair<P, Q> &a, Hasher h) {
 		h = hash_ops<P>::hash_into(a.first, h);
 		h = hash_ops<Q>::hash_into(a.second, h);
 		return h;
 	}
-	HASH_TOP_LOOP_FST (std::pair<P, Q> a) HASH_TOP_LOOP_SND
+	HASH_TOP_LOOP_FST (const std::pair<P, Q> &a) HASH_TOP_LOOP_SND
 };
 
 template<typename... T> struct hash_ops<std::tuple<T...>> {
-	static inline bool cmp(std::tuple<T...> a, std::tuple<T...> b) {
+	static inline bool cmp(const std::tuple<T...> &a, const std::tuple<T...> &b) {
 		return a == b;
 	}
 	template<size_t I = 0>
-	static inline typename std::enable_if<I == sizeof...(T), Hasher>::type hash_into(std::tuple<T...>, Hasher h) {
+	static inline typename std::enable_if<I == sizeof...(T), Hasher>::type hash_into(const std::tuple<T...> &, Hasher h) {
 		return h;
 	}
 	template<size_t I = 0>
-	static inline typename std::enable_if<I != sizeof...(T), Hasher>::type hash_into(std::tuple<T...> a, Hasher h) {
+	static inline typename std::enable_if<I != sizeof...(T), Hasher>::type hash_into(const std::tuple<T...> &a, Hasher h) {
 		typedef hash_ops<typename std::tuple_element<I, std::tuple<T...>>::type> element_ops_t;
 		h = hash_into<I+1>(a, h);
 		h = element_ops_t::hash_into(std::get<I>(a), h);
 		return h;
 	}
-	HASH_TOP_LOOP_FST (std::tuple<T...> a) HASH_TOP_LOOP_SND
+	HASH_TOP_LOOP_FST (const std::tuple<T...> &a) HASH_TOP_LOOP_SND
 };
 
 template<typename T> struct hash_ops<std::vector<T>> {
-	static inline bool cmp(std::vector<T> a, std::vector<T> b) {
+	static inline bool cmp(const std::vector<T> &a, const std::vector<T> &b) {
 		return a == b;
 	}
-	[[nodiscard]] static inline Hasher hash_into(std::vector<T> a, Hasher h) {
+	[[nodiscard]] static inline Hasher hash_into(const std::vector<T> &a, Hasher h) {
 		h.eat((uint32_t)a.size());
 		for (auto k : a)
 			h.eat(k);
 		return h;
 	}
-	HASH_TOP_LOOP_FST (std::vector<T> a) HASH_TOP_LOOP_SND
+	HASH_TOP_LOOP_FST (const std::vector<T> &a) HASH_TOP_LOOP_SND
 };
 
 template<typename T, size_t N> struct hash_ops<std::array<T, N>> {
-    static inline bool cmp(std::array<T, N> a, std::array<T, N> b) {
+    static inline bool cmp(const std::array<T, N> &a, const std::array<T, N> &b) {
         return a == b;
     }
-    [[nodiscard]] static inline Hasher hash_into(std::array<T, N> a, Hasher h) {
+    [[nodiscard]] static inline Hasher hash_into(const std::array<T, N> &a, Hasher h) {
         for (const auto& k : a)
             h = hash_ops<T>::hash_into(k, h);
         return h;
     }
-	HASH_TOP_LOOP_FST (std::array<T, N> a) HASH_TOP_LOOP_SND
+	HASH_TOP_LOOP_FST (const std::array<T, N> &a) HASH_TOP_LOOP_SND
 };
 
 struct hash_cstr_ops {
@@ -300,10 +302,10 @@ template<> struct hash_ops<std::monostate> {
 };
 
 template<typename... T> struct hash_ops<std::variant<T...>> {
-	static inline bool cmp(std::variant<T...> a, std::variant<T...> b) {
+	static inline bool cmp(const std::variant<T...> &a, const std::variant<T...> &b) {
 		return a == b;
 	}
-	[[nodiscard]] static inline Hasher hash_into(std::variant<T...> a, Hasher h) {
+	[[nodiscard]] static inline Hasher hash_into(const std::variant<T...> &a, Hasher h) {
 		std::visit([& h](const auto &v) { h.eat(v); }, a);
 		h.eat(a.index());
 		return h;
@@ -311,10 +313,10 @@ template<typename... T> struct hash_ops<std::variant<T...>> {
 };
 
 template<typename T> struct hash_ops<std::optional<T>> {
-	static inline bool cmp(std::optional<T> a, std::optional<T> b) {
+	static inline bool cmp(const std::optional<T> &a, const std::optional<T> &b) {
 		return a == b;
 	}
-	[[nodiscard]] static inline Hasher hash_into(std::optional<T> a, Hasher h) {
+	[[nodiscard]] static inline Hasher hash_into(const std::optional<T> &a, Hasher h) {
 		if(a.has_value())
 			h.eat(*a);
 		else
@@ -355,6 +357,29 @@ template<typename K, typename T, typename OPS = hash_ops<K>> class dict;
 template<typename K, int offset = 0, typename OPS = hash_ops<K>> class idict;
 template<typename K, typename OPS = hash_ops<K>> class pool;
 template<typename K, typename OPS = hash_ops<K>> class mfp;
+
+// Computes the hash value of an unordered set of elements.
+// See https://www.preprints.org/manuscript/201710.0192/v1/download.
+// This is the Sum(4) algorithm from that paper, which has good collision resistance,
+// much better than Sum(1) or Xor(1) (and somewhat better than Xor(4)).
+class commutative_hash {
+public:
+	commutative_hash() {
+		buckets.fill(0);
+	}
+	void eat(Hasher h) {
+		Hasher::hash_t v = h.yield();
+		size_t index = v & (buckets.size() - 1);
+		buckets[index] += v;
+	}
+	[[nodiscard]] Hasher hash_into(Hasher h) const {
+		for (auto b : buckets)
+			h.eat(b);
+		return h;
+	}
+private:
+	std::array<Hasher::hash_t, 4> buckets;
+};
 
 template<typename K, typename T, typename OPS>
 class dict {
@@ -801,14 +826,14 @@ public:
 	}
 
 	[[nodiscard]] Hasher hash_into(Hasher h) const {
+		commutative_hash comm;
 		for (auto &it : entries) {
 			Hasher entry_hash;
 			entry_hash.eat(it.udata.first);
 			entry_hash.eat(it.udata.second);
-			h.commutative_eat(entry_hash.yield());
+			comm.eat(entry_hash);
 		}
-		h.eat(entries.size());
-		return h;
+		return comm.hash_into(h);
 	}
 
 	void reserve(size_t n) { entries.reserve(n); }
@@ -1184,11 +1209,11 @@ public:
 	}
 
 	[[nodiscard]] Hasher hash_into(Hasher h) const {
+		commutative_hash comm;
 		for (auto &it : entries) {
-			h.commutative_eat(ops.hash(it.udata).yield());
+			comm.eat(ops.hash(it.udata));
 		}
-		h.eat(entries.size());
-		return h;
+		return comm.hash_into(h);
 	}
 
 	void reserve(size_t n) { entries.reserve(n); }
@@ -1353,7 +1378,8 @@ public:
 		return p;
 	}
 
-	// Merge sets if the given indices belong to different sets
+	// Merge sets if the given indices belong to different sets.
+	// Makes ifind(j) the root of the merged set.
 	void imerge(int i, int j)
 	{
 		i = ifind(i);

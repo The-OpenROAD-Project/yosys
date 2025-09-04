@@ -129,7 +129,7 @@ struct BtorWorker
 				std::replace(src.begin(), src.end(), ' ', '_');
 				if (srcsymbols.count(src) || module->count_id("\\" + src)) {
 					for (int i = 1;; i++) {
-						string s = stringf("%s-%d", src.c_str(), i);
+						string s = stringf("%s-%d", src, i);
 						if (!srcsymbols.count(s) && !module->count_id("\\" + s)) {
 							src = s;
 							break;
@@ -192,7 +192,7 @@ struct BtorWorker
 	void btorf_push(const string &id)
 	{
 		if (verbose) {
-			f << indent << stringf("  ; begin %s\n", id.c_str());
+			f << indent << stringf("  ; begin %s\n", id);
 			indent += "    ";
 		}
 	}
@@ -201,7 +201,7 @@ struct BtorWorker
 	{
 		if (verbose) {
 			indent = indent.substr(4);
-			f << indent << stringf("  ; end %s\n", id.c_str());
+			f << indent << stringf("  ; end %s\n", id);
 		}
 	}
 
@@ -509,7 +509,7 @@ struct BtorWorker
 			goto okay;
 		}
 
-		if (cell->type.in(ID($not), ID($neg), ID($_NOT_), ID($pos)))
+		if (cell->type.in(ID($not), ID($neg), ID($_NOT_), ID($pos), ID($buf), ID($_BUF_)))
 		{
 			string btor_op;
 			if (cell->type.in(ID($not), ID($_NOT_))) btor_op = "not";
@@ -521,9 +521,9 @@ struct BtorWorker
 			int nid_a = get_sig_nid(cell->getPort(ID::A), width, a_signed);
 			SigSpec sig = sigmap(cell->getPort(ID::Y));
 
-			// the $pos cell just passes through, all other cells need an actual operation applied
+			// the $pos/$buf cells just pass through, all other cells need an actual operation applied
 			int nid = nid_a;
-			if (cell->type != ID($pos))
+			if (!cell->type.in(ID($pos), ID($buf), ID($_BUF_)))
 			{
 				log_assert(!btor_op.empty());
 				int sid = get_bv_sid(width);
