@@ -168,8 +168,17 @@ struct hash_ops {
 		} else if constexpr (std::is_pointer_v<T>) {
 			return hash_ops<uintptr_t>::hash_into((uintptr_t) a, h);
 		} else if constexpr (std::is_same_v<T, std::string>) {
-			for (auto c : a)
-				h.hash32(c);
+			int size = a.size();
+			int i = 0;
+			while (i + 8 < size) {
+				uint64_t v;
+				memcpy(&v, a.data() + i, 8);
+				h.hash64(v);
+				i += 8;
+			}
+			uint64_t v = 0;
+			memcpy(&v, a.data() + i, size - i);
+			h.hash64(v);
 			return h;
 		} else {
 			return a.hash_into(h);
@@ -188,6 +197,12 @@ template<typename P, typename Q> struct hash_ops<std::pair<P, Q>> {
 		return h;
 	}
 	HASH_TOP_LOOP_FST (const std::pair<P, Q> &a) HASH_TOP_LOOP_SND
+	[[nodiscard]] static inline Hasher hash(const P &p, const Q &q) {
+		Hasher h;
+		h = hash_ops<P>::hash_into(p, h);
+		h = hash_ops<Q>::hash_into(q, h);
+		return h;
+	}
 };
 
 template<typename... T> struct hash_ops<std::tuple<T...>> {
@@ -509,12 +524,11 @@ class dict {
 		return do_lookup_internal(key, hash);
 	}
 
-	int do_insert(const K &key, Hasher::hash_t &hash)
+	int do_insert(const K &key, const Hasher::hash_t &hash)
 	{
 		if (hashtable.empty()) {
 			entries.emplace_back(std::pair<K, T>(key, T()), -1);
 			do_rehash();
-			hash = do_hash(key);
 		} else {
 			entries.emplace_back(std::pair<K, T>(key, T()), hashtable[hash]);
 			hashtable[hash] = entries.size() - 1;
@@ -522,12 +536,11 @@ class dict {
 		return entries.size() - 1;
 	}
 
-	int do_insert(const std::pair<K, T> &value, Hasher::hash_t &hash)
+	int do_insert(const std::pair<K, T> &value, const Hasher::hash_t &hash)
 	{
 		if (hashtable.empty()) {
 			entries.emplace_back(value, -1);
 			do_rehash();
-			hash = do_hash(value.first);
 		} else {
 			entries.emplace_back(value, hashtable[hash]);
 			hashtable[hash] = entries.size() - 1;
@@ -535,13 +548,11 @@ class dict {
 		return entries.size() - 1;
 	}
 
-	int do_insert(std::pair<K, T> &&rvalue, Hasher::hash_t &hash)
+	int do_insert(std::pair<K, T> &&rvalue, const Hasher::hash_t &hash)
 	{
 		if (hashtable.empty()) {
-			auto key = rvalue.first;
 			entries.emplace_back(std::forward<std::pair<K, T>>(rvalue), -1);
 			do_rehash();
-			hash = do_hash(key);
 		} else {
 			entries.emplace_back(std::forward<std::pair<K, T>>(rvalue), hashtable[hash]);
 			hashtable[hash] = entries.size() - 1;
@@ -558,13 +569,16 @@ public:
 		int index;
 		const_iterator(const dict *ptr, int index) : ptr(ptr), index(index) { }
 	public:
-		typedef std::forward_iterator_tag iterator_category;
+		typedef std::bidirectional_iterator_tag iterator_category;
 		typedef std::pair<K, T> value_type;
 		typedef ptrdiff_t difference_type;
-		typedef std::pair<K, T>* pointer;
-		typedef std::pair<K, T>& reference;
+		typedef const std::pair<K, T>* pointer;
+		typedef const std::pair<K, T>& reference;
 		const_iterator() { }
 		const_iterator operator++() { index--; return *this; }
+		const_iterator operator++(int) { const_iterator tmp = *this; index--; return tmp; }
+		const_iterator operator--() { index++; return *this; }
+		const_iterator operator--(int) { const_iterator tmp = *this; index++; return tmp; }
 		const_iterator operator+=(int amt) { index -= amt; return *this; }
 		bool operator<(const const_iterator &other) const { return index > other.index; }
 		bool operator==(const const_iterator &other) const { return index == other.index; }
@@ -598,6 +612,13 @@ public:
 		const std::pair<K, T> *operator->() const { return &ptr->entries[index].udata; }
 		operator const_iterator() const { return const_iterator(ptr, index); }
 	};
+	using reverse_iterator = std::reverse_iterator<const_iterator>;
+	reverse_iterator rbegin() const {
+		return std::make_reverse_iterator(end());
+	}
+	reverse_iterator rend() const {
+		return std::make_reverse_iterator(begin());
+	}
 
 	constexpr dict()
 	{
@@ -847,7 +868,7 @@ public:
 
 	const_iterator begin() const { return const_iterator(this, int(entries.size())-1); }
 	const_iterator element(int n) const { return const_iterator(this, int(entries.size())-1-n); }
-	const_iterator end() const { return const_iterator(nullptr, -1); }
+	const_iterator end() const { return const_iterator(this, -1); }
 };
 
 template<typename K, typename OPS>

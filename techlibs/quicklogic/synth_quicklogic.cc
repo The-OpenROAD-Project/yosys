@@ -176,7 +176,7 @@ struct SynthQuickLogicPass : public ScriptPass {
 			log_cmd_error("This command only operates on fully selected designs!\n");
 
 		if (family != "pp3" && family != "qlf_k6n10f")
-			log_cmd_error("Invalid family specified: '%s'\n", family.c_str());
+			log_cmd_error("Invalid family specified: '%s'\n", family);
 
 		if (abc9 && design->scratchpad_get_int("abc9.D", 0) == 0) {
 			log_warning("delay target has not been set via SDC or scratchpad; assuming 12 MHz clock.\n");
@@ -198,16 +198,16 @@ struct SynthQuickLogicPass : public ScriptPass {
 		}
 
 		if (check_label("begin")) {
-			std::string read_simlibs = stringf("read_verilog -lib -specify %scommon/cells_sim.v %s%s/cells_sim.v", lib_path.c_str(), lib_path.c_str(), family.c_str());
+			std::string read_simlibs = stringf("read_verilog -lib -specify %scommon/cells_sim.v %s%s/cells_sim.v", lib_path, lib_path, family);
 			if (family == "qlf_k6n10f") {
-				read_simlibs += stringf(" %sqlf_k6n10f/brams_sim.v", lib_path.c_str());
+				read_simlibs += stringf(" %sqlf_k6n10f/brams_sim.v", lib_path);
 				if (bramTypes)
-					read_simlibs += stringf(" %sqlf_k6n10f/bram_types_sim.v", lib_path.c_str());
+					read_simlibs += stringf(" %sqlf_k6n10f/bram_types_sim.v", lib_path);
 				if (dsp)
-					read_simlibs += stringf(" %sqlf_k6n10f/dsp_sim.v", lib_path.c_str());
+					read_simlibs += stringf(" %sqlf_k6n10f/dsp_sim.v", lib_path);
 			}
 			run(read_simlibs);
-			run(stringf("hierarchy -check %s", help_mode ? "-top <top>" : top_opt.c_str()));
+			run(stringf("hierarchy -check %s", help_mode ? "-top <top>" : top_opt));
 		}
 
 		if (check_label("prepare")) {
@@ -373,13 +373,13 @@ struct SynthQuickLogicPass : public ScriptPass {
 
 		if (check_label("blif", "(if -blif)")) {
 			if (!blif_file.empty() || help_mode) {
-				run(stringf("write_blif -attr -param %s %s", top_opt.c_str(), blif_file.c_str()));
+				run(stringf("write_blif -attr -param %s %s", top_opt, blif_file));
 			}
 		}
 
 		if (check_label("verilog", "(if -verilog)")) {
 			if (!verilog_file.empty() || help_mode) {
-				run(stringf("write_verilog -noattr -nohex %s", help_mode ? "<file-name>" : verilog_file.c_str()));
+				run(stringf("write_verilog -noattr -nohex %s", help_mode ? "<file-name>" : verilog_file));
 			}
 		}
 	}

@@ -64,7 +64,7 @@ struct OptMuxtreeWorker
 	RTLIL::Module *module;
 	SigMap assign_map;
 	int removed_count;
-	int glob_evals_left = 100000;
+	int glob_evals_left = 10000000;
 
 	struct bitinfo_t {
 		// Is bit directly used by non-mux cells or ports?
@@ -205,7 +205,7 @@ struct OptMuxtreeWorker
 	OptMuxtreeWorker(RTLIL::Design *design, RTLIL::Module *module) :
 			design(design), module(module), assign_map(module), removed_count(0)
 	{
-		log("Running muxtree optimizer on module %s..\n", module->name.c_str());
+		log("Running muxtree optimizer on module %s..\n", module->name);
 
 		log("  Creating internal representation of mux trees.\n");
 

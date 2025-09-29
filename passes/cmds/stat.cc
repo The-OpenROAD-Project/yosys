@@ -193,19 +193,19 @@ struct statdata_t {
 					int width_a = cell->hasPort(ID::A) ? GetSize(cell->getPort(ID::A)) : 0;
 					int width_b = cell->hasPort(ID::B) ? GetSize(cell->getPort(ID::B)) : 0;
 					int width_y = cell->hasPort(ID::Y) ? GetSize(cell->getPort(ID::Y)) : 0;
-					cell_type = stringf("%s_%d", cell_type.c_str(), max<int>({width_a, width_b, width_y}));
+					cell_type = stringf("%s_%d", cell_type, max<int>({width_a, width_b, width_y}));
 				} else if (cell_type.in(ID($mux)))
-					cell_type = stringf("%s_%d", cell_type.c_str(), GetSize(cell->getPort(ID::Y)));
+					cell_type = stringf("%s_%d", cell_type, GetSize(cell->getPort(ID::Y)));
 				else if (cell_type.in(ID($bmux), ID($pmux)))
 					cell_type =
-					  stringf("%s_%d_%d", cell_type.c_str(), GetSize(cell->getPort(ID::Y)), GetSize(cell->getPort(ID::S)));
+					  stringf("%s_%d_%d", cell_type, GetSize(cell->getPort(ID::Y)), GetSize(cell->getPort(ID::S)));
 				else if (cell_type == ID($demux))
 					cell_type =
-					  stringf("%s_%d_%d", cell_type.c_str(), GetSize(cell->getPort(ID::A)), GetSize(cell->getPort(ID::S)));
+					  stringf("%s_%d_%d", cell_type, GetSize(cell->getPort(ID::A)), GetSize(cell->getPort(ID::S)));
 				else if (cell_type.in(ID($sr), ID($ff), ID($dff), ID($dffe), ID($dffsr), ID($dffsre), ID($adff), ID($adffe),
 						      ID($sdff), ID($sdffe), ID($sdffce), ID($aldff), ID($aldffe), ID($dlatch), ID($adlatch),
 						      ID($dlatchsr)))
-					cell_type = stringf("%s_%d", cell_type.c_str(), GetSize(cell->getPort(ID::Q)));
+					cell_type = stringf("%s_%d", cell_type, GetSize(cell->getPort(ID::Q)));
 			}
 
 			if (!cell_area.empty()) {
@@ -228,7 +228,7 @@ struct statdata_t {
 							cell_area.at(cell_type).is_sequential = cell_data.is_sequential;
 
 						} else {
-							log_warning("too small single_parameter_area %s width: %d size: %d\n", cell_type.c_str(), max_width,
+							log_warning("too small single_parameter_area %s width: %d size: %d\n", cell_type, max_width,
 							       (int)cell_data.single_parameter_area.size());
 							cell_area.at(cell_type).area = cell_data.single_parameter_area.back();
 							cell_area.at(cell_type).is_sequential = cell_data.is_sequential;
@@ -274,7 +274,7 @@ struct statdata_t {
 									  cell_data.double_parameter_area.at(width_a - 1).at(width_b - 1);
 									cell_area.at(cell_type).is_sequential = cell_data.is_sequential;
 								} else {
-									log_warning("too small double_parameter_area %s, width_a: %d, width_b: %d, size_a: %d, size_b: %d\n", cell_type.c_str(),
+									log_warning("too small double_parameter_area %s, width_a: %d, width_b: %d, size_a: %d, size_b: %d\n", cell_type,
 									       width_a, width_b, (int)cell_data.double_parameter_area.size(),
 									       (int)cell_data.double_parameter_area.at(width_a - 1).size());
 									cell_area.at(cell_type).area = cell_data.double_parameter_area.back().back();
@@ -285,7 +285,7 @@ struct statdata_t {
 								cell_area.at(cell_type).is_sequential = cell_data.is_sequential;
 							}
 						} else {
-							log_error("double_parameter_area for %s has %d parameters, but only 2 are expected.\n", cell_type.c_str(),
+							log_error("double_parameter_area for %s has %d parameters, but only 2 are expected.\n", cell_type,
 							       (int)cell_data.double_parameter_area.size());
 						}
 					}
@@ -452,22 +452,22 @@ struct statdata_t {
 
 		if (print_area) {
 			if (print_hierarchical) {
-				log(" %s %s %s %s %s%s\n", count_global_str.c_str(), area_global_str.c_str(), count_local_str.c_str(),
+				log(" %s %s %s %s %s%s\n", count_global_str, area_global_str, count_local_str,
 				    area_local_str.c_str(), indent.c_str(), name.c_str());
 			} else if (print_global_only) {
-				log(" %s %s %s%s\n", count_global_str.c_str(), area_global_str.c_str(), indent.c_str(), name.c_str());
+				log(" %s %s %s%s\n", count_global_str, area_global_str, indent, name);
 			} else {
 				if (count_local > 0)
-					log(" %s %s %s%s\n", count_local_str.c_str(), area_local_str.c_str(), indent.c_str(), name.c_str());
+					log(" %s %s %s%s\n", count_local_str, area_local_str, indent, name);
 			}
 		} else {
 			if (print_hierarchical) {
-				log(" %s %s %s%s\n", count_global_str.c_str(), count_local_str.c_str(), indent.c_str(), name.c_str());
+				log(" %s %s %s%s\n", count_global_str, count_local_str, indent, name);
 			} else if (print_global_only) {
-				log(" %s %s%s\n", count_global_str.c_str(), indent.c_str(), name.c_str());
+				log(" %s %s%s\n", count_global_str, indent, name);
 			} else {
 				if (count_local > 0)
-					log(" %s %s%s\n", count_local_str.c_str(), indent.c_str(), name.c_str());
+					log(" %s %s%s\n", count_local_str, indent, name);
 			}
 		}
 	}
@@ -540,13 +540,13 @@ struct statdata_t {
 		if (!unknown_cell_area.empty()) {
 			log("\n");
 			for (auto cell_type : unknown_cell_area)
-				log("   Area for cell type %s is unknown!\n", cell_type.c_str());
+				log("   Area for cell type %s is unknown!\n", cell_type);
 		}
 
 		if (area != 0) {
 			log("\n");
 			if (print_hierarchical || print_global_only) {
-				log("   Chip area for %smodule '%s': %f\n", (top_mod) ? "top " : "", mod_name.c_str(), area);
+				log("   Chip area for %smodule '%s': %f\n", (top_mod) ? "top " : "", mod_name, area);
 				log("     of which used for sequential elements: %f (%.2f%%)\n", sequential_area, 100.0 * sequential_area / area);
 			} else {
 				double local_area = 0;
@@ -555,7 +555,7 @@ struct statdata_t {
 				double local_sequential_area = 0;
 				for (auto &it : local_seq_area_cells_by_type)
 					local_sequential_area += it.second;
-				log("   Chip area for %smodule '%s': %f\n", (top_mod) ? "top " : "", mod_name.c_str(), local_area);
+				log("   Chip area for %smodule '%s': %f\n", (top_mod) ? "top " : "", mod_name, local_area);
 				log("     of which used for sequential elements: %f (%.2f%%)\n", local_sequential_area,
 				    100.0 * local_sequential_area / local_area);
 			}
@@ -587,19 +587,19 @@ struct statdata_t {
 		if (!first_module)
 			log(",\n");
 		if (hierarchical) {
-			log("      %s: {\n", json11::Json(mod_name).dump().c_str());
-			log("         \"num_wires\":         %s,\n", json_line(local_num_wires, 0, num_wires, 0).c_str());
-			log("         \"num_wire_bits\":     %s,\n", json_line(local_num_wire_bits, 0, num_wire_bits, 0).c_str());
-			log("         \"num_pub_wires\":     %s,\n", json_line(local_num_pub_wires, 0, num_pub_wires, 0).c_str());
-			log("         \"num_pub_wire_bits\": %s,\n", json_line(local_num_pub_wire_bits, 0, num_pub_wire_bits, 0).c_str());
-			log("         \"num_ports\":         %s,\n", json_line(local_num_ports, 0, num_ports, 0).c_str());
-			log("         \"num_port_bits\":     %s,\n", json_line(local_num_port_bits, 0, num_port_bits, 0).c_str());
-			log("         \"num_memories\":      %s,\n", json_line(local_num_memories, 0, num_memories, 0).c_str());
-			log("         \"num_memory_bits\":   %s,\n", json_line(local_num_memory_bits, 0, num_memory_bits, 0).c_str());
-			log("         \"num_processes\":     %s,\n", json_line(local_num_processes, 0, num_processes, 0).c_str());
-			log("         \"num_cells\":         %s,\n", json_line(local_num_cells, local_area, num_cells, area).c_str());
-			log("         \"num_submodules\":       %s,\n", json_line(0, 0, num_submodules, submodule_area).c_str());
-			log("         \"sequential_area\":    %s,\n", json_line(0, local_sequential_area, 0, sequential_area).c_str());
+			log("      %s: {\n", json11::Json(mod_name).dump());
+			log("         \"num_wires\":         %s,\n", json_line(local_num_wires, 0, num_wires, 0));
+			log("         \"num_wire_bits\":     %s,\n", json_line(local_num_wire_bits, 0, num_wire_bits, 0));
+			log("         \"num_pub_wires\":     %s,\n", json_line(local_num_pub_wires, 0, num_pub_wires, 0));
+			log("         \"num_pub_wire_bits\": %s,\n", json_line(local_num_pub_wire_bits, 0, num_pub_wire_bits, 0));
+			log("         \"num_ports\":         %s,\n", json_line(local_num_ports, 0, num_ports, 0));
+			log("         \"num_port_bits\":     %s,\n", json_line(local_num_port_bits, 0, num_port_bits, 0));
+			log("         \"num_memories\":      %s,\n", json_line(local_num_memories, 0, num_memories, 0));
+			log("         \"num_memory_bits\":   %s,\n", json_line(local_num_memory_bits, 0, num_memory_bits, 0));
+			log("         \"num_processes\":     %s,\n", json_line(local_num_processes, 0, num_processes, 0));
+			log("         \"num_cells\":         %s,\n", json_line(local_num_cells, local_area, num_cells, area));
+			log("         \"num_submodules\":       %s,\n", json_line(0, 0, num_submodules, submodule_area));
+			log("         \"sequential_area\":    %s,\n", json_line(0, local_sequential_area, 0, sequential_area));
 
 			log("         \"num_cells_by_type\": {\n");
 			bool first_line = true;
@@ -607,7 +607,7 @@ struct statdata_t {
 				if (it.second) {
 					if (!first_line)
 						log(",\n");
-					log("            %s: %s", json11::Json(log_id(it.first)).dump().c_str(),
+					log("            %s: %s", json11::Json(log_id(it.first)).dump(),
 					    json_line(local_num_cells_by_type.count(it.first) ? local_num_cells_by_type.at(it.first) : 0,
 						      local_area_cells_by_type.count(it.first) ? local_area_cells_by_type.at(it.first) : 0, it.second,
 						      area_cells_by_type.at(it.first))
@@ -621,7 +621,7 @@ struct statdata_t {
 				if (it.second) {
 					if (!first_line)
 						log(",\n");
-					log("            %s: %s", json11::Json(log_id(it.first)).dump().c_str(),
+					log("            %s: %s", json11::Json(log_id(it.first)).dump(),
 					    json_line(0, 0, it.second,
 						      submodules_area_by_type.count(it.first) ? submodules_area_by_type.at(it.first) : 0)
 					      .c_str());
@@ -640,7 +640,7 @@ struct statdata_t {
 
 		} else {
 			if (global_only) {
-				log("      %s: {\n", json11::Json(mod_name).dump().c_str());
+				log("      %s: {\n", json11::Json(mod_name).dump());
 				log("         \"num_wires\":         %u,\n", num_wires);
 				log("         \"num_wire_bits\":     %u,\n", num_wire_bits);
 				log("         \"num_pub_wires\":     %u,\n", num_pub_wires);
@@ -662,20 +662,20 @@ struct statdata_t {
 					if (it.second) {
 						if (!first_line)
 							log(",\n");
-						log("            %s: %u", json11::Json(log_id(it.first)).dump().c_str(), it.second);
+						log("            %s: %u", json11::Json(log_id(it.first)).dump(), it.second);
 						first_line = false;
 					}
 				for (auto &it : num_submodules_by_type)
 					if (it.second) {
 						if (!first_line)
 							log(",\n");
-						log("            %s: %u", json11::Json(log_id(it.first)).dump().c_str(), it.second);
+						log("            %s: %u", json11::Json(log_id(it.first)).dump(), it.second);
 						first_line = false;
 					}
 				log("\n");
 				log("         }");
 			} else {
-				log("      %s: {\n", json11::Json(mod_name).dump().c_str());
+				log("      %s: {\n", json11::Json(mod_name).dump());
 				log("         \"num_wires\":         %u,\n", local_num_wires);
 				log("         \"num_wire_bits\":     %u,\n", local_num_wire_bits);
 				log("         \"num_pub_wires\":     %u,\n", local_num_pub_wires);
@@ -697,14 +697,14 @@ struct statdata_t {
 					if (it.second) {
 						if (!first_line)
 							log(",\n");
-						log("            %s: %u", json11::Json(log_id(it.first)).dump().c_str(), it.second);
+						log("            %s: %u", json11::Json(log_id(it.first)).dump(), it.second);
 						first_line = false;
 					}
 				for (auto &it : num_submodules_by_type)
 					if (it.second) {
 						if (!first_line)
 							log(",\n");
-						log("            %s: %u", json11::Json(log_id(it.first)).dump().c_str(), it.second);
+						log("            %s: %u", json11::Json(log_id(it.first)).dump(), it.second);
 						first_line = false;
 					}
 				log("\n");
@@ -824,11 +824,11 @@ void read_liberty_cellarea(dict<IdString, cell_area_t> &cell_area, string libert
 					double value = std::stod(s);
 					single_parameter_area.push_back(value);
 				} catch (const std::exception &e) {
-					log_error("Failed to parse single parameter area value '%s': %s\n", s.c_str(), e.what());
+					log_error("Failed to parse single parameter area value '%s': %s\n", s, e.what());
 				}
 			}
 			if (single_parameter_area.size() == 0)
-				log_error("single parameter area has size 0: %s\n", sar->args[single_parameter_area.size() - 1].c_str());
+				log_error("single parameter area has size 0: %s\n", sar->args[single_parameter_area.size() - 1]);
 			// check if it is a double parameterised area
 		}
 		const LibertyAst *dar = cell->find("double_area_parameterised");
@@ -857,12 +857,12 @@ void read_liberty_cellarea(dict<IdString, cell_area_t> &cell_area, string libert
 						value = std::stod(s);
 						cast_sub_array.push_back(value);
 					} catch (const std::exception &e) {
-						log_error("Failed to parse double parameter area value for  '%s': %s\n", s.c_str(), e.what());
+						log_error("Failed to parse double parameter area value for  '%s': %s\n", s, e.what());
 					}
 				}
 				double_parameter_area.push_back(cast_sub_array);
 				if (cast_sub_array.size() == 0)
-					log_error("double paramter array has size 0: %s\n", s.c_str());
+					log_error("double paramter array has size 0: %s\n", s);
 			}
 		}
 		const LibertyAst *par = cell->find("port_names");
@@ -949,7 +949,7 @@ struct StatPass : public Pass {
 			}
 			if (args[argidx] == "-top" && argidx + 1 < args.size()) {
 				if (design->module(RTLIL::escape_id(args[argidx + 1])) == nullptr)
-					log_cmd_error("Can't find module %s.\n", args[argidx + 1].c_str());
+					log_cmd_error("Can't find module %s.\n", args[argidx + 1]);
 				top_mod = design->module(RTLIL::escape_id(args[++argidx]));
 				continue;
 			}
@@ -969,14 +969,14 @@ struct StatPass : public Pass {
 			log_header(design, "Printing statistics.\n");
 
 		if (techname != "" && techname != "xilinx" && techname != "cmos" && !json_mode)
-			log_cmd_error("Unsupported technology: '%s'\n", techname.c_str());
+			log_cmd_error("Unsupported technology: '%s'\n", techname);
 
 		if (json_mode) {
 			log("{\n");
-			log("   \"creator\": %s,\n", json11::Json(yosys_maybe_version()).dump().c_str());
+			log("   \"creator\": %s,\n", json11::Json(yosys_maybe_version()).dump());
 			std::stringstream invocation;
 			std::copy(args.begin(), args.end(), std::ostream_iterator<std::string>(invocation, " "));
-			log("   \"invocation\": %s,\n", json11::Json(invocation.str()).dump().c_str());
+			log("   \"invocation\": %s,\n", json11::Json(invocation.str()).dump());
 			log("   \"modules\": {\n");
 		}
 
@@ -1017,7 +1017,7 @@ struct StatPass : public Pass {
 
 		if (json_mode) {
 			log("\n");
-			log(top_mod == nullptr ? "   }\n" : "   },\n");
+			log("%s", top_mod == nullptr ? "   }\n" : "   },\n");
 		}
 
 		if (top_mod != nullptr) {

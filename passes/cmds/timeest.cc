@@ -88,7 +88,7 @@ struct EstimateSta {
 
 		for (auto cell : m->cells()) {
 			SigSpec launch, sample;
-			if (RTLIL::builtin_ff_cell_types().count(cell->type)) {
+			if (cell->is_builtin_ff()) {
 				// collect launch and sample points for FF cell
 				FfData ff(nullptr, cell);
 				if (!ff.has_clk) {
@@ -320,9 +320,9 @@ struct EstimateSta {
 					std::string cell_src;
 					if (cell->has_attribute(ID::src)) {
 						std::string src_attr = cell->get_src_attribute();
-						cell_src = stringf(" source: %s", src_attr.c_str());
+						cell_src = stringf(" source: %s", src_attr);
 					}
-					log("    cell %s (%s)%s\n", log_id(cell), log_id(cell->type), cell_src.c_str());
+					log("    cell %s (%s)%s\n", log_id(cell), log_id(cell->type), cell_src);
 					printed.insert(cell);
 				}
 			} else {
@@ -331,9 +331,9 @@ struct EstimateSta {
 				std::string wire_src;
 				if (bit.wire && bit.wire->has_attribute(ID::src)) {
 					std::string src_attr = bit.wire->get_src_attribute();
-					wire_src = stringf(" source: %s", src_attr.c_str());
+					wire_src = stringf(" source: %s", src_attr);
 				}
-				log("    wire %s%s (level %ld)\n", log_signal(bit), wire_src.c_str(), levels[node]);
+				log("    wire %s%s (level %ld)\n", log_signal(bit), wire_src, levels[node]);
 			}
 		}
 
@@ -403,7 +403,7 @@ struct TimeestPass : Pass {
 
 		for (auto m : d->selected_modules()) {
 			if (!m->wire(RTLIL::escape_id(clk))) {
-				log_warning("No domain '%s' in module %s\n", clk.c_str(), log_id(m));
+				log_warning("No domain '%s' in module %s\n", clk, log_id(m));
 				continue;
 			}
 

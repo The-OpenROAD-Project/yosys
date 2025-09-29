@@ -83,6 +83,21 @@ namespace RTLIL
 		SB_EXCL_BB_CMDERR = 15 // call log_cmd_error on black boxed module
 	};
 
+	enum class StaticId : short {
+		STATIC_ID_BEGIN = 0,
+#define X(N) N,
+#include "kernel/constids.inc"
+#undef X
+		STATIC_ID_END,
+	};
+
+	enum PortDir : unsigned char  {
+		PD_UNKNOWN = 0,
+		PD_INPUT = 1,
+		PD_OUTPUT = 2,
+		PD_INOUT = 3
+	};
+
 	struct Const;
 	struct AttrObject;
 	struct NamedObject;
@@ -105,8 +120,19 @@ namespace RTLIL
 	struct Process;
 	struct Binding;
 	struct IdString;
+	struct StaticIdString;
 
 	typedef std::pair<SigSpec, SigSpec> SigSig;
+
+	struct StaticIdString {
+		constexpr StaticIdString(StaticId id, const IdString &id_str) : id_str(id_str), id(id) {}
+		constexpr inline operator const IdString &() const { return id_str; }
+		constexpr inline int index() const { return static_cast<short>(id); }
+		constexpr inline const IdString &id_string() const { return id_str; }
+
+		const IdString &id_str;
+		const StaticId id;
+	};
 };
 
 struct RTLIL::IdString
@@ -127,7 +153,13 @@ struct RTLIL::IdString
 	static std::vector<char*> global_id_storage_;
 	static std::unordered_map<std::string_view, int> global_id_index_;
 #ifndef YOSYS_NO_IDS_REFCNT
-	static std::vector<int> global_refcount_storage_;
+	// For prepopulated IdStrings, the refcount is meaningless since they
+	// are never freed even if the refcount is zero. For code efficiency
+	// we increment the refcount of prepopulated IdStrings like any other string,
+	// but we never decrement the refcount or check whether it's zero.
+	// So, make this unsigned because refcounts of preopulated IdStrings may overflow
+	// and overflow of signed integers is undefined behavior.
+	static std::vector<uint32_t> global_refcount_storage_;
 	static std::vector<int> global_free_idx_list_;
 #endif
 
@@ -144,7 +176,7 @@ struct RTLIL::IdString
 			if (global_id_storage_.at(idx) == nullptr)
 				log("#X# DB-DUMP index %d: FREE\n", idx);
 			else
-				log("#X# DB-DUMP index %d: '%s' (ref %d)\n", idx, global_id_storage_.at(idx), global_refcount_storage_.at(idx));
+				log("#X# DB-DUMP index %d: '%s' (ref %u)\n", idx, global_id_storage_.at(idx), global_refcount_storage_.at(idx));
 		}
 	#endif
 	}
@@ -166,24 +198,19 @@ struct RTLIL::IdString
 
 	static inline int get_reference(int idx)
 	{
-		if (idx) {
 	#ifndef YOSYS_NO_IDS_REFCNT
-			global_refcount_storage_[idx]++;
+		global_refcount_storage_[idx]++;
 	#endif
 	#ifdef YOSYS_XTRACE_GET_PUT
-			if (yosys_xtrace)
-				log("#X# GET-BY-INDEX '%s' (index %d, refcount %d)\n", global_id_storage_.at(idx), idx, global_refcount_storage_.at(idx));
+		if (yosys_xtrace && idx >= static_cast<short>(StaticId::STATIC_ID_END))
+			log("#X# GET-BY-INDEX '%s' (index %d, refcount %u)\n", global_id_storage_.at(idx), idx, global_refcount_storage_.at(idx));
 	#endif
-		}
 		return idx;
 	}
 
 	static int get_reference(const char *p)
 	{
 		log_assert(destruct_guard_ok);
-
-		if (!p[0])
-			return 0;
 
 		auto it = global_id_index_.find((char*)p);
 		if (it != global_id_index_.end()) {
@@ -192,10 +219,15 @@ struct RTLIL::IdString
 	#endif
 	#ifdef YOSYS_XTRACE_GET_PUT
 			if (yosys_xtrace)
-				log("#X# GET-BY-NAME '%s' (index %d, refcount %d)\n", global_id_storage_.at(it->second), it->second, global_refcount_storage_.at(it->second));
+				log("#X# GET-BY-NAME '%s' (index %d, refcount %u)\n", global_id_storage_.at(it->second), it->second, global_refcount_storage_.at(it->second));
 	#endif
 			return it->second;
 		}
+
+		ensure_prepopulated();
+
+		if (!p[0])
+			return 0;
 
 		log_assert(p[0] == '$' || p[0] == '\\');
 		log_assert(p[1] != 0);
@@ -205,11 +237,6 @@ struct RTLIL::IdString
 
 	#ifndef YOSYS_NO_IDS_REFCNT
 		if (global_free_idx_list_.empty()) {
-			if (global_id_storage_.empty()) {
-				global_refcount_storage_.push_back(0);
-				global_id_storage_.push_back((char*)"");
-				global_id_index_[global_id_storage_.back()] = 0;
-			}
 			log_assert(global_id_storage_.size() < 0x40000000);
 			global_free_idx_list_.push_back(global_id_storage_.size());
 			global_id_storage_.push_back(nullptr);
@@ -222,10 +249,6 @@ struct RTLIL::IdString
 		global_id_index_[global_id_storage_.at(idx)] = idx;
 		global_refcount_storage_.at(idx)++;
 	#else
-		if (global_id_storage_.empty()) {
-			global_id_storage_.push_back((char*)"");
-			global_id_index_[global_id_storage_.back()] = 0;
-		}
 		int idx = global_id_storage_.size();
 		global_id_storage_.push_back(strdup(p));
 		global_id_index_[global_id_storage_.back()] = idx;
@@ -238,7 +261,7 @@ struct RTLIL::IdString
 
 	#ifdef YOSYS_XTRACE_GET_PUT
 		if (yosys_xtrace)
-			log("#X# GET-BY-NAME '%s' (index %d, refcount %d)\n", global_id_storage_.at(idx), idx, global_refcount_storage_.at(idx));
+			log("#X# GET-BY-NAME '%s' (index %d, refcount %u)\n", global_id_storage_.at(idx), idx, global_refcount_storage_.at(idx));
 	#endif
 
 	#ifdef YOSYS_USE_STICKY_IDS
@@ -258,21 +281,20 @@ struct RTLIL::IdString
 	{
 		// put_reference() may be called from destructors after the destructor of
 		// global_refcount_storage_ has been run. in this case we simply do nothing.
-		if (!destruct_guard_ok || !idx)
+		if (idx < static_cast<short>(StaticId::STATIC_ID_END) || !destruct_guard_ok)
 			return;
 
 	#ifdef YOSYS_XTRACE_GET_PUT
 		if (yosys_xtrace) {
-			log("#X# PUT '%s' (index %d, refcount %d)\n", global_id_storage_.at(idx), idx, global_refcount_storage_.at(idx));
+			log("#X# PUT '%s' (index %d, refcount %u)\n", global_id_storage_.at(idx), idx, global_refcount_storage_.at(idx));
 		}
 	#endif
 
-		int &refcount = global_refcount_storage_[idx];
+		uint32_t &refcount = global_refcount_storage_[idx];
 
 		if (--refcount > 0)
 			return;
 
-		log_assert(refcount == 0);
 		free_reference(idx);
 	}
 	static inline void free_reference(int idx)
@@ -281,6 +303,7 @@ struct RTLIL::IdString
 			log("#X# Removed IdString '%s' with index %d.\n", global_id_storage_.at(idx), idx);
 			log_backtrace("-X- ", yosys_xtrace-1);
 		}
+		log_assert(idx >= static_cast<short>(StaticId::STATIC_ID_END));
 
 		global_id_index_.erase(global_id_storage_.at(idx));
 		free(global_id_storage_.at(idx));
@@ -300,6 +323,7 @@ struct RTLIL::IdString
 	inline IdString(const IdString &str) : index_(get_reference(str.index_)) { }
 	inline IdString(IdString &&str) : index_(str.index_) { str.index_ = 0; }
 	inline IdString(const std::string &str) : index_(get_reference(str.c_str())) { }
+	inline IdString(StaticId id) : index_(static_cast<short>(id)) {}
 	inline ~IdString() { put_reference(index_); }
 
 	inline void operator=(const IdString &rhs) {
@@ -317,6 +341,8 @@ struct RTLIL::IdString
 		*this = id;
 	}
 
+	constexpr inline const IdString &id_string() const { return *this; }
+
 	inline const char *c_str() const {
 		return global_id_storage_.at(index_);
 	}
@@ -331,6 +357,8 @@ struct RTLIL::IdString
 
 	inline bool operator==(const IdString &rhs) const { return index_ == rhs.index_; }
 	inline bool operator!=(const IdString &rhs) const { return index_ != rhs.index_; }
+	inline bool operator==(const StaticIdString &rhs) const;
+	inline bool operator!=(const StaticIdString &rhs) const;
 
 	// The methods below are just convenience functions for better compatibility with std::string.
 
@@ -411,17 +439,27 @@ struct RTLIL::IdString
 	// often one needs to check if a given IdString is part of a list (for example a list
 	// of cell types). the following functions helps with that.
 	template<typename... Args>
-	bool in(Args... args) const {
+	bool in(const Args &... args) const {
 		return (... || in(args));
 	}
 
 	bool in(const IdString &rhs) const { return *this == rhs; }
+	bool in(const StaticIdString &rhs) const { return *this == rhs; }
 	bool in(const char *rhs) const { return *this == rhs; }
 	bool in(const std::string &rhs) const { return *this == rhs; }
 	inline bool in(const pool<IdString> &rhs) const;
 	inline bool in(const pool<IdString> &&rhs) const;
 
 	bool isPublic() const { return begins_with("\\"); }
+
+private:
+	static void prepopulate();
+
+public:
+	static void ensure_prepopulated() {
+		if (global_id_index_.empty())
+			prepopulate();
+	}
 };
 
 namespace hashlib {
@@ -430,10 +468,10 @@ namespace hashlib {
 		static inline bool cmp(const RTLIL::IdString &a, const RTLIL::IdString &b) {
 			return a == b;
 		}
-		[[nodiscard]] static inline Hasher hash(const RTLIL::IdString id) {
+		[[nodiscard]] static inline Hasher hash(const RTLIL::IdString &id) {
 			return id.hash_top();
 		}
-		[[nodiscard]] static inline Hasher hash_into(const RTLIL::IdString id, Hasher h) {
+		[[nodiscard]] static inline Hasher hash_into(const RTLIL::IdString &id, Hasher h) {
 			return id.hash_into(h);
 		}
 	};
@@ -449,14 +487,88 @@ inline bool RTLIL::IdString::in(const pool<IdString> &rhs) const { return rhs.co
 [[deprecated]]
 inline bool RTLIL::IdString::in(const pool<IdString> &&rhs) const { return rhs.count(*this) != 0; }
 
+inline bool RTLIL::IdString::operator==(const RTLIL::StaticIdString &rhs) const {
+	return index_ == rhs.index();
+}
+inline bool RTLIL::IdString::operator!=(const RTLIL::StaticIdString &rhs) const {
+	return index_ != rhs.index();
+}
+
 namespace RTLIL {
-	namespace ID {
-#define X(_id) extern IdString _id;
+	namespace IDInternal {
+#define X(_id) extern const IdString _id;
 #include "kernel/constids.inc"
 #undef X
-	};
+	}
+	namespace ID {
+#define X(_id) constexpr StaticIdString _id(StaticId::_id, IDInternal::_id);
+#include "kernel/constids.inc"
+#undef X
+	}
+}
+
+struct IdTableEntry {
+	const std::string_view name;
+	const RTLIL::StaticIdString static_id;
+};
+
+constexpr IdTableEntry IdTable[] = {
+#define X(_id) {#_id, ID::_id},
+#include "kernel/constids.inc"
+#undef X
+};
+
+constexpr int lookup_well_known_id(std::string_view name)
+{
+	int low = 0;
+	int high = sizeof(IdTable) / sizeof(IdTable[0]);
+	while (high - low >= 2) {
+		int mid = (low + high) / 2;
+		if (name < IdTable[mid].name)
+			high = mid;
+		else
+			low = mid;
+	}
+	if (IdTable[low].name == name)
+		return low;
+	return -1;
+}
+
+// Create a statically allocated IdString object, using for example ID::A or ID($add).
+//
+// Recipe for Converting old code that is using conversion of strings like ID::A and
+// "$add" for creating IdStrings: Run below SED command on the .cc file and then use for
+// example "meld foo.cc foo.cc.orig" to manually compile errors, if necessary.
+//
+//  sed -i.orig -r 's/"\\\\([a-zA-Z0-9_]+)"/ID(\1)/g; s/"(\$[a-zA-Z0-9_]+)"/ID(\1)/g;' <filename>
+//
+typedef const RTLIL::IdString &IDMacroHelperFunc();
+
+template <int IdTableIndex> struct IDMacroHelper {
+	static constexpr RTLIL::StaticIdString eval(IDMacroHelperFunc) {
+		return IdTable[IdTableIndex].static_id;
+	}
+};
+template <> struct IDMacroHelper<-1> {
+	static constexpr const RTLIL::IdString &eval(IDMacroHelperFunc func) {
+		return func();
+	}
+};
+
+#define ID(_id) \
+		YOSYS_NAMESPACE_PREFIX IDMacroHelper< \
+				YOSYS_NAMESPACE_PREFIX lookup_well_known_id(#_id) \
+		>::eval([]() \
+		-> const YOSYS_NAMESPACE_PREFIX RTLIL::IdString & { \
+			const char *p = "\\" #_id, *q = p[1] == '$' ? p+1 : p; \
+			static const YOSYS_NAMESPACE_PREFIX RTLIL::IdString id(q); \
+			return id; \
+        })
+
+namespace RTLIL {
 	extern dict<std::string, std::string> constpad;
 
+	[[deprecated("Call cell->is_builtin_ff() instead")]]
 	const pool<IdString> &builtin_ff_cell_types();
 
 	static inline std::string escape_id(const std::string &str) {
@@ -723,38 +835,61 @@ private:
 	using bitvectype = std::vector<RTLIL::State>;
 	enum class backing_tag: bool { bits, string };
 	// Do not access the union or tag even in Const methods unless necessary
-	mutable backing_tag tag;
+	backing_tag tag;
 	union {
-		mutable bitvectype bits_;
-		mutable std::string str_;
+		bitvectype bits_;
+		std::string str_;
 	};
 
 	// Use these private utilities instead
 	bool is_bits() const { return tag == backing_tag::bits; }
 	bool is_str() const { return tag == backing_tag::string; }
 
-	bitvectype* get_if_bits() const { return is_bits() ? &bits_ : NULL; }
-	std::string* get_if_str() const { return is_str() ? &str_ : NULL; }
+	bitvectype* get_if_bits() { return is_bits() ? &bits_ : NULL; }
+	std::string* get_if_str() { return is_str() ? &str_ : NULL; }
+	const bitvectype* get_if_bits() const { return is_bits() ? &bits_ : NULL; }
+	const std::string* get_if_str() const { return is_str() ? &str_ : NULL; }
 
-	bitvectype& get_bits() const;
-	std::string& get_str() const;
+	bitvectype& get_bits();
+	std::string& get_str();
+	const bitvectype& get_bits() const;
+	const std::string& get_str() const;
+	std::vector<RTLIL::State>& bits_internal();
+	void bitvectorize_internal();
+
 public:
 	Const() : flags(RTLIL::CONST_FLAG_NONE), tag(backing_tag::bits), bits_(std::vector<RTLIL::State>()) {}
 	Const(const std::string &str);
-	Const(long long val, int width = 32);
+	Const(long long val); // default width is 32
+	Const(long long val, int width);
 	Const(RTLIL::State bit, int width = 1);
-	Const(const std::vector<RTLIL::State> &bits) : flags(RTLIL::CONST_FLAG_NONE), tag(backing_tag::bits), bits_(bits) {}
+	Const(std::vector<RTLIL::State> bits) : flags(RTLIL::CONST_FLAG_NONE), tag(backing_tag::bits), bits_(std::move(bits)) {}
 	Const(const std::vector<bool> &bits);
 	Const(const RTLIL::Const &other);
 	Const(RTLIL::Const &&other);
 	RTLIL::Const &operator =(const RTLIL::Const &other);
 	~Const();
 
+	struct Builder
+	{
+		Builder() {}
+		Builder(int expected_width) { bits.reserve(expected_width); }
+		void push_back(RTLIL::State b) { bits.push_back(b); }
+		int size() const { return static_cast<int>(bits.size()); }
+		Const build() { return Const(std::move(bits)); }
+	private:
+		std::vector<RTLIL::State> bits;
+	};
+
 	bool operator <(const RTLIL::Const &other) const;
 	bool operator ==(const RTLIL::Const &other) const;
 	bool operator !=(const RTLIL::Const &other) const;
 
-	std::vector<RTLIL::State>& bits();
+	[[deprecated("Don't use direct access to the internal std::vector<State>, that's an implementation detail.")]]
+	std::vector<RTLIL::State>& bits() { return bits_internal(); }
+	[[deprecated("Don't call bitvectorize() directly, it's an implementation detail.")]]
+	void bitvectorize() const { const_cast<Const*>(this)->bitvectorize_internal(); }
+
 	bool as_bool() const;
 
 	// Convert the constant value to a C++ int.
@@ -783,37 +918,42 @@ public:
 	std::string decode_string() const;
 	int size() const;
 	bool empty() const;
-	void bitvectorize() const;
 
 	void append(const RTLIL::Const &other);
+	void set(int i, RTLIL::State state) {
+		bits_internal()[i] = state;
+	}
+	void resize(int size, RTLIL::State fill) {
+		bits_internal().resize(size, fill);
+	}
 
 	class const_iterator {
 	private:
-		const Const& parent;
+		const Const* parent;
 		size_t idx;
 
 	public:
-		using iterator_category = std::input_iterator_tag;
+		using iterator_category = std::bidirectional_iterator_tag;
 		using value_type = State;
 		using difference_type = std::ptrdiff_t;
 		using pointer = const State*;
 		using reference = const State&;
 
-		const_iterator(const Const& c, size_t i) : parent(c), idx(i) {}
+		const_iterator(const Const& c, size_t i) : parent(&c), idx(i) {}
 
 		State operator*() const;
 
 		const_iterator& operator++() { ++idx; return *this; }
 		const_iterator& operator--() { --idx; return *this; }
-		const_iterator& operator++(int) { ++idx; return *this; }
-		const_iterator& operator--(int) { --idx; return *this; }
+		const_iterator operator++(int) { const_iterator result(*this); ++idx; return result; }
+		const_iterator operator--(int) { const_iterator result(*this); --idx; return result; }
 		const_iterator& operator+=(int i) { idx += i; return *this; }
 
 		const_iterator operator+(int add) {
-			return const_iterator(parent, idx + add);
+			return const_iterator(*parent, idx + add);
 		}
 		const_iterator operator-(int sub) {
-			return const_iterator(parent, idx - sub);
+			return const_iterator(*parent, idx - sub);
 		}
 		int operator-(const const_iterator& other) {
 			return idx - other.idx;
@@ -828,11 +968,68 @@ public:
 		}
 	};
 
+	class iterator {
+	private:
+		Const* parent;
+		size_t idx;
+
+	public:
+		class proxy {
+		private:
+			Const* parent;
+			size_t idx;
+		public:
+			proxy(Const* parent, size_t idx) : parent(parent), idx(idx) {}
+			operator State() const { return (*parent)[idx]; }
+			proxy& operator=(State s) { parent->set(idx, s); return *this; }
+			proxy& operator=(const proxy& other) { parent->set(idx, (*other.parent)[other.idx]); return *this; }
+		};
+
+		using iterator_category = std::bidirectional_iterator_tag;
+		using value_type = State;
+		using difference_type = std::ptrdiff_t;
+		using pointer = proxy*;
+		using reference = proxy;
+
+		iterator(Const& c, size_t i) : parent(&c), idx(i) {}
+
+		proxy operator*() const { return proxy(parent, idx); }
+		iterator& operator++() { ++idx; return *this; }
+		iterator& operator--() { --idx; return *this; }
+		iterator operator++(int) { iterator result(*this); ++idx; return result; }
+		iterator operator--(int) { iterator result(*this); --idx; return result; }
+		iterator& operator+=(int i) { idx += i; return *this; }
+
+		iterator operator+(int add) {
+			return iterator(*parent, idx + add);
+		}
+		iterator operator-(int sub) {
+			return iterator(*parent, idx - sub);
+		}
+		int operator-(const iterator& other) {
+			return idx - other.idx;
+		}
+
+		bool operator==(const iterator& other) const {
+			return idx == other.idx;
+		}
+
+		bool operator!=(const iterator& other) const {
+			return !(*this == other);
+		}
+	};
+
 	const_iterator begin() const {
 		return const_iterator(*this, 0);
 	}
 	const_iterator end() const {
 		return const_iterator(*this, size());
+	}
+	iterator begin() {
+		return iterator(*this, 0);
+	}
+	iterator end() {
+		return iterator(*this, size());
 	}
 	State back() const {
 		return *(end() - 1);
@@ -865,20 +1062,14 @@ public:
 	std::optional<int> as_int_compress(bool is_signed) const;
 
 	void extu(int width) {
-		bits().resize(width, RTLIL::State::S0);
+		resize(width, RTLIL::State::S0);
 	}
 
 	void exts(int width) {
-		bitvectype& bv = bits();
-		bv.resize(width, bv.empty() ? RTLIL::State::Sx : bv.back());
+		resize(width, empty() ? RTLIL::State::Sx : back());
 	}
 
-	[[nodiscard]] Hasher hash_into(Hasher h) const {
-		h.eat(size());
-		for (auto b : *this)
-			h.eat(b);
-		return h;
-	}
+	[[nodiscard]] Hasher hash_into(Hasher h) const;
 };
 
 struct RTLIL::AttrObject
@@ -933,7 +1124,8 @@ struct RTLIL::SigChunk
 	SigChunk(RTLIL::Wire *wire) : wire(wire), width(GetSize(wire)), offset(0) {}
 	SigChunk(RTLIL::Wire *wire, int offset, int width = 1) : wire(wire), width(width), offset(offset) {}
 	SigChunk(const std::string &str) : SigChunk(RTLIL::Const(str)) {}
-	SigChunk(int val, int width = 32) : SigChunk(RTLIL::Const(val, width)) {}
+	SigChunk(int val) /*default width 32*/ : SigChunk(RTLIL::Const(val)) {}
+	SigChunk(int val, int width) : SigChunk(RTLIL::Const(val, width)) {}
 	SigChunk(RTLIL::State bit, int width = 1) : SigChunk(RTLIL::Const(bit, width)) {}
 	SigChunk(const RTLIL::SigBit &bit);
 
@@ -1052,7 +1244,8 @@ private:
 public:
 	SigSpec() : width_(0), hash_(0) {}
 	SigSpec(std::initializer_list<RTLIL::SigSpec> parts);
-
+	SigSpec(const SigSpec &value) = default;
+	SigSpec(SigSpec &&value) = default;
 	SigSpec(const RTLIL::Const &value);
 	SigSpec(RTLIL::Const &&value);
 	SigSpec(const RTLIL::SigChunk &chunk);
@@ -1068,6 +1261,9 @@ public:
 	SigSpec(const pool<RTLIL::SigBit> &bits);
 	SigSpec(const std::set<RTLIL::SigBit> &bits);
 	explicit SigSpec(bool bit);
+
+	SigSpec &operator=(const SigSpec &rhs) = default;
+	SigSpec &operator=(SigSpec &&rhs) = default;
 
 	inline const std::vector<RTLIL::SigChunk> &chunks() const { pack(); return chunks_; }
 	inline const std::vector<RTLIL::SigBit> &bits() const { inline_unpack(); return bits_; }
@@ -1142,12 +1338,15 @@ public:
 	bool is_chunk() const;
 	inline bool is_bit() const { return width_ == 1; }
 
+	bool known_driver() const;
+
 	bool is_fully_const() const;
 	bool is_fully_zero() const;
 	bool is_fully_ones() const;
 	bool is_fully_def() const;
 	bool is_fully_undef() const;
 	bool has_const() const;
+	bool has_const(State state) const;
 	bool has_marked_bits() const;
 	bool is_onehot(int *pos = nullptr) const;
 
@@ -1539,7 +1738,11 @@ public:
 	std::vector<RTLIL::IdString> ports;
 	void fixup_ports();
 
-	pool<pair<RTLIL::Cell*, RTLIL::IdString>> bufNormQueue;
+	pool<RTLIL::Cell *> buf_norm_cell_queue;
+	pool<pair<RTLIL::Cell *, RTLIL::IdString>> buf_norm_cell_port_queue;
+	pool<RTLIL::Wire *> buf_norm_wire_queue;
+	pool<RTLIL::Cell *> pending_deleted_cells;
+	dict<RTLIL::Wire *, pool<RTLIL::Cell *>> buf_norm_connect_index;
 	void bufNormalize();
 
 	template<typename T> void rewrite_sigspecs(T &functor);
@@ -1872,6 +2075,8 @@ public:
 	int width, start_offset, port_id;
 	bool port_input, port_output, upto, is_signed;
 
+	bool known_driver() const { return driverCell_ != nullptr; }
+
 	RTLIL::Cell *driverCell() const    { log_assert(driverCell_); return driverCell_; };
 	RTLIL::IdString driverPort() const { log_assert(driverCell_); return driverPort_; };
 
@@ -1943,6 +2148,7 @@ public:
 	bool known() const;
 	bool input(const RTLIL::IdString &portname) const;
 	bool output(const RTLIL::IdString &portname) const;
+	PortDir port_dir(const RTLIL::IdString &portname) const;
 
 	// access cell parameters
 	bool hasParam(const RTLIL::IdString &paramname) const;
@@ -1968,6 +2174,7 @@ public:
 
 	bool has_memid() const;
 	bool is_mem_cell() const;
+	bool is_builtin_ff() const;
 };
 
 struct RTLIL::CaseRule : public RTLIL::AttrObject

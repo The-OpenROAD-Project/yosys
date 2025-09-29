@@ -53,7 +53,7 @@ struct Slice {
 	}
 
 	static void syntax_error(const std::string &slice) {
-		log_cmd_error("Invalid slice '%s', expected '<first>:<last>' or '<single>'", slice.c_str());
+		log_cmd_error("Invalid slice '%s', expected '<first>:<last>' or '<single>'", slice);
 	}
 
 	std::string to_string() const {
@@ -67,7 +67,7 @@ struct Slice {
 	int wire_offset(RTLIL::Wire *wire, int index) const {
 		int rtl_offset = indices == RtlilSlice ? index : wire->from_hdl_index(index);
 		if (rtl_offset < 0 || rtl_offset >= wire->width) {
-			log_error("Slice %s is out of bounds for wire %s in module %s", to_string().c_str(), log_id(wire), log_id(wire->module));
+			log_error("Slice %s is out of bounds for wire %s in module %s", to_string(), log_id(wire), log_id(wire->module));
 		}
 		return rtl_offset;
 	}
@@ -156,9 +156,9 @@ dict<SigBit, std::vector<SelReason>> gather_selected_reps(Module* mod, const std
 void explain_selections(const std::vector<SelReason>& reasons) {
 	for (std::variant<Wire*, Cell*> reason : reasons) {
 		if (Cell** cell_reason = std::get_if<Cell*>(&reason))
-			log_debug("\tcell %s\n", (*cell_reason)->name.c_str());
+			log_debug("\tcell %s\n", (*cell_reason)->name);
 		else if (Wire** wire_reason = std::get_if<Wire*>(&reason))
-			log_debug("\twire %s\n", (*wire_reason)->name.c_str());
+			log_debug("\twire %s\n", (*wire_reason)->name);
 		else
 			log_assert(false && "insane reason variant\n");
 	}
@@ -494,7 +494,7 @@ struct AbstractPass : public Pass {
 					case Enable::ActiveHigh: {
 						Wire *enable_wire = mod->wire("\\" + enable_name);
 						if (!enable_wire)
-							log_cmd_error("Enable wire %s not found in module %s\n", enable_name.c_str(), mod->name.c_str());
+							log_cmd_error("Enable wire %s not found in module %s\n", enable_name, mod->name);
 						if (GetSize(enable_wire) != 1)
 							log_cmd_error("Enable wire %s must have width 1 but has width %d in module %s\n",
 									enable_name.c_str(), GetSize(enable_wire), mod->name.c_str());

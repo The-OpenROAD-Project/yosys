@@ -70,7 +70,7 @@ void load_plugin(std::string filename, std::vector<std::string> aliases)
 				if(module_p == NULL)
 				{
 					PyErr_Print();
-					log_cmd_error("Can't load python module `%s'\n", full_path.filename().c_str());
+					log_cmd_error("Can't load python module `%s'\n", full_path.filename());
 					return;
 				}
 				loaded_python_plugins[orig_filename] = module_p;
@@ -100,7 +100,7 @@ void load_plugin(std::string filename, std::vector<std::string> aliases)
 			}
 
 			if (hdl == NULL)
-				log_cmd_error("Can't load module `%s': %s\n", filename.c_str(), dlerror());
+				log_cmd_error("Can't load module `%s': %s\n", filename, dlerror());
 
 			loaded_plugins[orig_filename] = hdl;
 			Pass::init_register();
@@ -187,11 +187,11 @@ struct PluginPass : public Pass {
 				log("Loaded plugins:\n");
 
 			for (auto &it : loaded_plugins)
-				log("  %s\n", it.first.c_str());
+				log("  %s\n", it.first);
 
 #ifdef WITH_PYTHON
 			for (auto &it : loaded_python_plugins)
-				log("  %s\n", it.first.c_str());
+				log("  %s\n", it.first);
 #endif
 
 			if (!loaded_plugin_aliases.empty()) {
@@ -200,7 +200,7 @@ struct PluginPass : public Pass {
 				for (auto &it : loaded_plugin_aliases)
 					max_alias_len = max(max_alias_len, GetSize(it.first));
 				for (auto &it : loaded_plugin_aliases)
-					log("Alias: %-*s %s\n", max_alias_len, it.first.c_str(), it.second.c_str());
+					log("Alias: %-*s %s\n", max_alias_len, it.first, it.second);
 			}
 		}
 	}

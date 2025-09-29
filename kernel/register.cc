@@ -54,7 +54,7 @@ Pass::Pass(std::string name, std::string short_help, source_location location) :
 void Pass::run_register()
 {
 	if (pass_register.count(pass_name) && !replace_existing_pass())
-		log_error("Unable to register pass '%s', pass already exists!\n", pass_name.c_str());
+		log_error("Unable to register pass '%s', pass already exists!\n", pass_name);
 	pass_register[pass_name] = this;
 }
 
@@ -123,7 +123,7 @@ void Pass::help()
 		prettyHelp.log_help();
 	} else {
 		log("\n");
-		log("No help message for command `%s'.\n", pass_name.c_str());
+		log("No help message for command `%s'.\n", pass_name);
 		log("\n");
 	}
 }
@@ -143,7 +143,7 @@ void Pass::cmd_log_args(const std::vector<std::string> &args)
 		return;
 	log("Full command line:");
 	for (size_t i = 0; i < args.size(); i++)
-		log(" %s", args[i].c_str());
+		log(" %s", args[i]);
 	log("\n");
 }
 
@@ -158,7 +158,7 @@ void Pass::cmd_error(const std::vector<std::string> &args, size_t argidx, std::s
 		command_text = command_text + (command_text.empty() ? "" : " ") + args[i];
 	}
 
-	log("\nSyntax error in command `%s':\n", command_text.c_str());
+	log("\nSyntax error in command `%s':\n", command_text);
 	help();
 
 	log_cmd_error("Command syntax error: %s\n> %s\n> %*s^\n",
@@ -199,7 +199,7 @@ void Pass::call(RTLIL::Design *design, std::string command)
 		while (!cmd_buf.empty() && (cmd_buf.back() == ' ' || cmd_buf.back() == '\t' ||
 				cmd_buf.back() == '\r' || cmd_buf.back() == '\n'))
 			cmd_buf.resize(cmd_buf.size()-1);
-		log_header(design, "Shell command: %s\n", cmd_buf.c_str());
+		log_header(design, "Shell command: %s\n", cmd_buf);
 		int retCode = run_command(cmd_buf);
 		if (retCode != 0)
 			log_cmd_error("Shell command returned error code %d.\n", retCode);
@@ -257,15 +257,15 @@ void Pass::call(RTLIL::Design *design, std::vector<std::string> args)
 	if (echo_mode) {
 		log("%s", create_prompt(design, 0));
 		for (size_t i = 0; i < args.size(); i++)
-			log("%s%s", i ? " " : "", args[i].c_str());
+			log("%s%s", i ? " " : "", args[i]);
 		log("\n");
 	}
 
 	if (pass_register.count(args[0]) == 0)
-		log_cmd_error("No such command: %s (type 'help' for a command overview)\n", args[0].c_str());
+		log_cmd_error("No such command: %s (type 'help' for a command overview)\n", args[0]);
 
 	if (pass_register[args[0]]->experimental_flag)
-		log_experimental("%s", args[0].c_str());
+		log_experimental(args[0]);
 
 	size_t orig_sel_stack_pos = design->selection_stack.size();
 	auto state = pass_register[args[0]]->pre_execute();
@@ -330,9 +330,9 @@ bool ScriptPass::check_label(std::string label, std::string info)
 	if (active_design == nullptr) {
 		log("\n");
 		if (info.empty())
-			log("    %s:\n", label.c_str());
+			log("    %s:\n", label);
 		else
-			log("    %s:    %s\n", label.c_str(), info.c_str());
+			log("    %s:    %s\n", label, info);
 		return true;
 	} else {
 		if (!active_run_from.empty() && active_run_from == active_run_to) {
@@ -351,9 +351,9 @@ void ScriptPass::run(std::string command, std::string info)
 {
 	if (active_design == nullptr) {
 		if (info.empty())
-			log("        %s\n", command.c_str());
+			log("        %s\n", command);
 		else
-			log("        %s    %s\n", command.c_str(), info.c_str());
+			log("        %s    %s\n", command, info);
 	} else {
 		Pass::call(active_design, command);
 		active_design->check();
@@ -364,9 +364,9 @@ void ScriptPass::run_nocheck(std::string command, std::string info)
 {
 	if (active_design == nullptr) {
 		if (info.empty())
-			log("        %s\n", command.c_str());
+			log("        %s\n", command);
 		else
-			log("        %s    %s\n", command.c_str(), info.c_str());
+			log("        %s    %s\n", command, info);
 	} else {
 		Pass::call(active_design, command);
 	}
@@ -402,11 +402,11 @@ Frontend::Frontend(std::string name, std::string short_help, source_location loc
 void Frontend::run_register()
 {
 	if (pass_register.count(pass_name) && !replace_existing_pass())
-		log_error("Unable to register pass '%s', pass already exists!\n", pass_name.c_str());
+		log_error("Unable to register pass '%s', pass already exists!\n", pass_name);
 	pass_register[pass_name] = this;
 
 	if (frontend_register.count(frontend_name) && !replace_existing_pass())
-		log_error("Unable to register frontend '%s', frontend already exists!\n", frontend_name.c_str());
+		log_error("Unable to register frontend '%s', frontend already exists!\n", frontend_name);
 	frontend_register[frontend_name] = this;
 }
 
@@ -462,7 +462,7 @@ void Frontend::extra_args(std::istream *&f, std::string &filename, std::vector<s
 				char block[4096];
 				while (1) {
 					if (fgets(block, 4096, Frontend::current_script_file == nullptr? stdin : Frontend::current_script_file) == nullptr)
-						log_error("Unexpected end of file in here document '%s'!\n", filename.c_str());
+						log_error("Unexpected end of file in here document '%s'!\n", filename);
 					buffer += block;
 					if (buffer.size() > 0 && (buffer[buffer.size() - 1] == '\n' || buffer[buffer.size() - 1] == '\r'))
 						break;
@@ -521,7 +521,7 @@ void Frontend::frontend_call(RTLIL::Design *design, std::istream *f, std::string
 	if (args.size() == 0)
 		return;
 	if (frontend_register.count(args[0]) == 0)
-		log_cmd_error("No such frontend: %s\n", args[0].c_str());
+		log_cmd_error("No such frontend: %s\n", args[0]);
 
 	if (f != NULL) {
 		auto state = frontend_register[args[0]]->pre_execute();
@@ -548,11 +548,11 @@ Backend::Backend(std::string name, std::string short_help, source_location locat
 void Backend::run_register()
 {
 	if (pass_register.count(pass_name))
-		log_error("Unable to register pass '%s', pass already exists!\n", pass_name.c_str());
+		log_error("Unable to register pass '%s', pass already exists!\n", pass_name);
 	pass_register[pass_name] = this;
 
 	if (backend_register.count(backend_name))
-		log_error("Unable to register backend '%s', backend already exists!\n", backend_name.c_str());
+		log_error("Unable to register backend '%s', backend already exists!\n", backend_name);
 	backend_register[backend_name] = this;
 }
 
@@ -596,7 +596,7 @@ void Backend::extra_args(std::ostream *&f, std::string &filename, std::vector<st
 			gzip_ostream *gf = new gzip_ostream;
 			if (!gf->open(filename)) {
 				delete gf;
-				log_cmd_error("Can't open output file `%s' for writing: %s\n", filename.c_str(), strerror(errno));
+				log_cmd_error("Can't open output file `%s' for writing: %s\n", filename, strerror(errno));
 			}
 			yosys_output_files.insert(filename);
 			f = gf;
@@ -609,7 +609,7 @@ void Backend::extra_args(std::ostream *&f, std::string &filename, std::vector<st
 			yosys_output_files.insert(filename);
 			if (ff->fail()) {
 				delete ff;
-				log_cmd_error("Can't open output file `%s' for writing: %s\n", filename.c_str(), strerror(errno));
+				log_cmd_error("Can't open output file `%s' for writing: %s\n", filename, strerror(errno));
 			}
 			f = ff;
 		}
@@ -641,7 +641,7 @@ void Backend::backend_call(RTLIL::Design *design, std::ostream *f, std::string f
 	if (args.size() == 0)
 		return;
 	if (backend_register.count(args[0]) == 0)
-		log_cmd_error("No such backend: %s\n", args[0].c_str());
+		log_cmd_error("No such backend: %s\n", args[0]);
 
 	size_t orig_sel_stack_pos = design->selection_stack.size();
 
@@ -699,12 +699,12 @@ static void log_warning_flags(Pass *pass) {
 	if (pass->experimental_flag) {
 		if (!has_warnings) log("\n");
 		has_warnings = true;
-		log("WARNING: THE '%s' COMMAND IS EXPERIMENTAL.\n", name.c_str());
+		log("WARNING: THE '%s' COMMAND IS EXPERIMENTAL.\n", name);
 	}
 	if (pass->internal_flag) {
 		if (!has_warnings) log("\n");
 		has_warnings = true;
-		log("WARNING: THE '%s' COMMAND IS INTENDED FOR INTERNAL DEVELOPER USE ONLY.\n", name.c_str());
+		log("WARNING: THE '%s' COMMAND IS INTENDED FOR INTERNAL DEVELOPER USE ONLY.\n", name);
 	}
 	if (has_warnings)
 		log("\n");
@@ -956,23 +956,17 @@ struct HelpPass : public Pass {
 			auto name = it.first.str();
 			if (cell_help_messages.contains(name)) {
 				auto cell_help = cell_help_messages.get(name);
-				if (groups.count(cell_help.group) != 0) {
-					auto group_cells = &groups.at(cell_help.group);
-					group_cells->push_back(name);
-				} else {
-					auto group_cells = new vector<string>(1, name);
-					groups.emplace(cell_help.group, *group_cells);
-				}
+				groups[cell_help.group].emplace_back(name);
 				auto cell_pair = pair<SimHelper, CellType>(cell_help, it.second);
 				cells.emplace(name, cell_pair);
 			} else {
-				log("ERROR: Missing cell help for cell '%s'.\n", name.c_str());
+				log("ERROR: Missing cell help for cell '%s'.\n", name);
 				raise_error |= true;
 			}
 		}
 		for (auto &it : cell_help_messages.cell_help) {
 			if (cells.count(it.first) == 0) {
-				log_warning("Found cell model '%s' without matching cell type.\n", it.first.c_str());
+				log_warning("Found cell model '%s' without matching cell type.\n", it.first);
 			}
 		}
 
@@ -1028,7 +1022,7 @@ struct HelpPass : public Pass {
 		if (args.size() == 1) {
 			log("\n");
 			for (auto &it : pass_register)
-				log("    %-20s %s\n", it.first.c_str(), it.second->short_help.c_str());
+				log("    %-20s %s\n", it.first, it.second->short_help);
 			log("\n");
 			log("Type 'help <command>' for more information on a command.\n");
 			log("Type 'help -cells' for a list of all cell types.\n");
@@ -1040,7 +1034,7 @@ struct HelpPass : public Pass {
 			if (args[1] == "-all") {
 				for (auto &it : pass_register) {
 					log("\n\n");
-					log("%s  --  %s\n", it.first.c_str(), it.second->short_help.c_str());
+					log("%s  --  %s\n", it.first, it.second->short_help);
 					for (size_t i = 0; i < it.first.size() + it.second->short_help.size() + 6; i++)
 						log("=");
 					log("\n");
@@ -1052,7 +1046,7 @@ struct HelpPass : public Pass {
 				log("\n");
 				for (auto &it : cell_help_messages.cell_help) {
 					SimHelper help_cell = it.second;
-					log("    %-15s %s\n", help_cell.name.c_str(), help_cell.ports.c_str());
+					log("    %-15s %s\n", help_cell.name, help_cell.ports);
 				}
 				log("\n");
 				log("Type 'help <cell_type>' for more information on a cell type.\n");
@@ -1067,34 +1061,34 @@ struct HelpPass : public Pass {
 				auto help_cell = cell_help_messages.get(args[1]);
 				if (is_code_getter(args[1])) {
 						log("\n");
-						log("%s\n", help_cell.code.c_str());
+						log("%s\n", help_cell.code);
 				} else {
-					log("\n    %s %s\n\n", help_cell.name.c_str(), help_cell.ports.c_str());
+					log("\n    %s %s\n\n", help_cell.name, help_cell.ports);
 					if (help_cell.ver == "2" || help_cell.ver == "2a") {
-						if (help_cell.title != "") log("%s:\n", help_cell.title.c_str());
+						if (help_cell.title != "") log("%s:\n", help_cell.title);
 						std::stringstream ss;
 						ss << help_cell.desc;
 						for (std::string line; std::getline(ss, line, '\n');) {
-							if (line != "::") log("%s\n", line.c_str());
+							if (line != "::") log("%s\n", line);
 						}
 					} else if (help_cell.desc.length()) {
-						log("%s\n", help_cell.desc.c_str());
+						log("%s\n", help_cell.desc);
 					} else {
 						log("No help message for this cell type found.\n");
 					}
-					log("\nRun 'help %s+' to display the Verilog model for this cell type.\n", args[1].c_str());
+					log("\nRun 'help %s+' to display the Verilog model for this cell type.\n", args[1]);
 					log("\n");
 				}
 			}
 			else
-				log("No such command or cell type: %s\n", args[1].c_str());
+				log("No such command or cell type: %s\n", args[1]);
 			return;
 		} else if (args.size() == 3) {
 			// this option is undocumented as it is for internal use only
 			if (args[1] == "-dump-cmds-json") {
 				PrettyJson json;
 				if (!json.write_to_file(args[2]))
-					log_error("Can't open file `%s' for writing: %s\n", args[2].c_str(), strerror(errno));
+					log_error("Can't open file `%s' for writing: %s\n", args[2], strerror(errno));
 				if (dump_cmds_json(json)) {
 					log_abort();
 				}
@@ -1103,13 +1097,13 @@ struct HelpPass : public Pass {
 			else if (args[1] == "-dump-cells-json") {
 				PrettyJson json;
 				if (!json.write_to_file(args[2]))
-					log_error("Can't open file `%s' for writing: %s\n", args[2].c_str(), strerror(errno));
+					log_error("Can't open file `%s' for writing: %s\n", args[2], strerror(errno));
 				if (dump_cells_json(json)) {
 					log_error("One or more cells defined in celltypes.h are missing help documentation.\n");
 				}
 			}
 			else
-				log("Unknown help command: `%s %s'\n", args[1].c_str(), args[2].c_str());
+				log("Unknown help command: `%s %s'\n", args[1], args[2]);
 			return;
 		}
 

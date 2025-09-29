@@ -51,7 +51,7 @@ static std::list<std::vector<std::string>> verilog_defaults_stack;
 static void error_on_dpi_function(AST::AstNode *node)
 {
     if (node->type == AST::AST_DPI_FUNCTION)
-        err_at_loc(node->location, "Found DPI function %s.\n", node->str.c_str());
+        err_at_loc(node->location, "Found DPI function %s.\n", node->str);
     for (auto& child : node->children)
         error_on_dpi_function(child.get());
 }
@@ -229,6 +229,10 @@ struct VerilogFrontend : public Frontend {
 		log("        add 'dir' to the directories which are used when searching include\n");
 		log("        files\n");
 		log("\n");
+		log("    -relativeshare\n");
+		log("        use paths relative to share directory for source locations\n");
+		log("        where possible (experimental).\n");
+		log("\n");
 		log("The command 'verilog_defaults' can be used to register default options for\n");
 		log("subsequent calls to 'read_verilog'.\n");
 		log("\n");
@@ -273,6 +277,7 @@ struct VerilogFrontend : public Frontend {
 		bool flag_nowb = false;
 		bool flag_nosynthesis = false;
 		bool flag_yydebug = false;
+		bool flag_relative_share = false;
 		define_map_t defines_map;
 
 		std::list<std::string> include_dirs;
@@ -450,6 +455,11 @@ struct VerilogFrontend : public Frontend {
 				attributes.push_back(RTLIL::escape_id(args[++argidx]));
 				continue;
 			}
+			if (arg == "-relativeshare") {
+				flag_relative_share = true;
+				log_experimental("read_verilog -relativeshare");
+				continue;
+			}
 			if (arg == "-D" && argidx+1 < args.size()) {
 				std::string name = args[++argidx], value;
 				size_t equal = name.find('=');
@@ -485,11 +495,18 @@ struct VerilogFrontend : public Frontend {
 
 		extra_args(f, filename, args, argidx);
 
-		log_header(design, "Executing Verilog-2005 frontend: %s\n", filename.c_str());
+		log_header(design, "Executing Verilog-2005 frontend: %s\n", filename);
 
 		log("Parsing %s%s input from `%s' to AST representation.\n",
 				parse_mode.formal ? "formal " : "", parse_mode.sv ? "SystemVerilog" : "Verilog", filename.c_str());
 
+		log("verilog frontend filename %s\n", filename.c_str());
+		if (flag_relative_share) {
+			auto share_path = proc_share_dirname();
+			if (filename.substr(0, share_path.length()) == share_path)
+				filename = std::string("+/") + filename.substr(share_path.length());
+			log("new filename %s\n", filename.c_str());
+		}
 		AST::sv_mode_but_global_and_used_for_literally_one_condition = parse_mode.sv;
 		std::string code_after_preproc;
 
@@ -497,7 +514,7 @@ struct VerilogFrontend : public Frontend {
 		if (!flag_nopp) {
 			code_after_preproc = frontend_verilog_preproc(*f, filename, defines_map, *design->verilog_defines, include_dirs, parse_state, parse_mode);
 			if (flag_ppdump)
-				log("-- Verilog code after preprocessor --\n%s-- END OF DUMP --\n", code_after_preproc.c_str());
+				log("-- Verilog code after preprocessor --\n%s-- END OF DUMP --\n", code_after_preproc);
 			parse_state.lexin = new std::istringstream(code_after_preproc);
 		}
 

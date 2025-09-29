@@ -42,7 +42,7 @@ std::shared_ptr<const LibertyAst> LibertyAstCache::cached_ast(const std::string 
 	if (it == cached.end())
 		return nullptr;
 	if (verbose)
-		log("Using cached data for liberty file `%s'\n", fname.c_str());
+		log("Using cached data for liberty file `%s'\n", fname);
 	return it->second;
 }
 
@@ -53,7 +53,7 @@ void LibertyAstCache::parsed_ast(const std::string &fname, const std::shared_ptr
 	if (!should_cache)
 		return;
 	if (verbose)
-		log("Caching data for liberty file `%s'\n", fname.c_str());
+		log("Caching data for liberty file `%s'\n", fname);
 	cached.emplace(fname, ast);
 }
 
@@ -191,7 +191,7 @@ LibertyExpression LibertyExpression::parse(Lexer &s, int min_prio) {
 		s.next();
 		lhs = parse(s);
 		if (s.peek() != ')') {
-			log_warning("expected ')' instead of '%c' while parsing Liberty expression '%s'\n", s.peek(), s.full_expr().c_str());
+			log_warning("expected ')' instead of '%c' while parsing Liberty expression '%s'\n", s.peek(), s.full_expr());
 			return lhs;
 		}
 		s.next();
@@ -200,7 +200,7 @@ LibertyExpression LibertyExpression::parse(Lexer &s, int min_prio) {
 		lhs.kind = Kind::NOT;
 		lhs.children.push_back(parse(s, 7));
 	} else {
-		log_warning("unrecognised character '%c' while parsing Liberty expression '%s'\n", c, s.full_expr().c_str());
+		log_warning("unrecognised character '%c' while parsing Liberty expression '%s'\n", c, s.full_expr());
 		return lhs;
 	}
 
@@ -671,17 +671,20 @@ void LibertyParser::error(const std::string &str) const
 	std::stringstream ss;
 	ss << "Syntax error in liberty file on line " << line << ".\n";
 	ss << "  " << str << "\n";
-	log_error("%s", ss.str().c_str());
+	log_error("%s", ss.str());
 }
 
 #else
 
+YS_ATTRIBUTE(weak)
 void LibertyParser::error() const
 {
 	fprintf(stderr, "Syntax error in liberty file on line %d.\n", line);
 	exit(1);
 }
 
+
+YS_ATTRIBUTE(weak)
 void LibertyParser::error(const std::string &str) const
 {
 	std::stringstream ss;

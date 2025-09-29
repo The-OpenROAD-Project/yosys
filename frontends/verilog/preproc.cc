@@ -242,7 +242,7 @@ struct arg_map_t
 	void add_arg(const std::string &name, const char *default_value)
 	{
 		if (find(name)) {
-			log_error("Duplicate macro arguments with name `%s'.\n", name.c_str());
+			log_error("Duplicate macro arguments with name `%s'.\n", name);
 		}
 
 		name_to_pos[name] = args.size();
@@ -265,7 +265,7 @@ struct arg_map_t
 	// (something like macro_foobar_arg2). This doesn't include the leading backtick.
 	static std::string str_token(const std::string &macro_name, int pos)
 	{
-		return stringf("macro_%s_arg%d", macro_name.c_str(), pos);
+		return stringf("macro_%s_arg%d", macro_name, pos);
 	}
 
 	// Return definitions for the macro arguments (so that substituting in the macro body and
@@ -741,7 +741,7 @@ read_define(const std::string &filename,
 		defines_map.add(name, value, (state == 2) ? &args : nullptr);
 		global_defines_cache.add(name, value, (state == 2) ? &args : nullptr);
 	} else {
-		log_file_error(filename, 0, "Invalid name for macro definition: >>%s<<.\n", name.c_str());
+		log_file_error(filename, 0, "Invalid name for macro definition: >>%s<<.\n", name);
 	}
 }
 
@@ -789,14 +789,14 @@ frontend_verilog_preproc(std::istream                 &f,
 			else if (ifdef_pass_level > 0)
 				ifdef_pass_level--;
 			else
-				log_error("Found %s outside of macro conditional branch!\n", tok.c_str());
+				log_error("Found %s outside of macro conditional branch!\n", tok);
 			continue;
 		}
 
 		if (tok == "`else") {
 			if (ifdef_fail_level == 0) {
 				if (ifdef_pass_level == 0)
-					log_error("Found %s outside of macro conditional branch!\n", tok.c_str());
+					log_error("Found %s outside of macro conditional branch!\n", tok);
 				ifdef_pass_level--;
 				ifdef_fail_level = 1;
 				ifdef_already_satisfied = true;
@@ -813,7 +813,7 @@ frontend_verilog_preproc(std::istream                 &f,
 			std::string name = next_token(true);
 			if (ifdef_fail_level == 0) {
 				if (ifdef_pass_level == 0)
-					log_error("Found %s outside of macro conditional branch!\n", tok.c_str());
+					log_error("Found %s outside of macro conditional branch!\n", tok);
 				ifdef_pass_level--;
 				ifdef_fail_level = 1;
 				ifdef_already_satisfied = true;

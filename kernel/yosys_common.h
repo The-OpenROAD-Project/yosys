@@ -142,7 +142,12 @@
 #define YOSYS_CONSTEVAL constexpr
 #endif
 
-#define YOSYS_ABORT(s) abort()
+#define YOSYS_ABORT(s) YOSYS_NAMESPACE_PREFIX log_yosys_abort_message(__FILE__, __LINE__, __FUNCTION__, s)
+
+// This has to precede including "kernel/io.h"
+YOSYS_NAMESPACE_BEGIN
+[[noreturn]] void log_yosys_abort_message(std::string_view file, int line, std::string_view func, std::string_view message);
+YOSYS_NAMESPACE_END
 
 #include "kernel/io.h"
 
@@ -206,13 +211,13 @@ namespace RTLIL {
 	struct Module;
 	struct Design;
 	struct Monitor;
-    struct Selection;
+	struct Selection;
 	struct SigChunk;
 	enum State : unsigned char;
 
 	typedef std::pair<SigSpec, SigSpec> SigSig;
 
-    namespace ID {}
+	namespace ID {}
 }
 
 namespace AST {
@@ -277,16 +282,6 @@ RTLIL::IdString new_id_suffix(std::string file, int line, std::string func, std:
 #define NEW_ID_SUFFIX(suffix) \
 	YOSYS_NAMESPACE_PREFIX new_id_suffix(__FILE__, __LINE__, __FUNCTION__, suffix)
 
-// Create a statically allocated IdString object, using for example ID::A or ID($add).
-//
-// Recipe for Converting old code that is using conversion of strings like ID::A and
-// "$add" for creating IdStrings: Run below SED command on the .cc file and then use for
-// example "meld foo.cc foo.cc.orig" to manually compile errors, if necessary.
-//
-//  sed -i.orig -r 's/"\\\\([a-zA-Z0-9_]+)"/ID(\1)/g; s/"(\$[a-zA-Z0-9_]+)"/ID(\1)/g;' <filename>
-//
-#define ID(_id) ([]() { const char *p = "\\" #_id, *q = p[1] == '$' ? p+1 : p; \
-        static const YOSYS_NAMESPACE_PREFIX RTLIL::IdString id(q); return id; })()
 namespace ID = RTLIL::ID;
 
 

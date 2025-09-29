@@ -36,9 +36,9 @@ static std::map<RTLIL::IdString, cell_mapping> cell_mappings;
 static void logmap(IdString dff)
 {
 	if (cell_mappings.count(dff) == 0) {
-		log("    unmapped dff cell: %s\n", dff.c_str());
+		log("    unmapped dff cell: %s\n", dff);
 	} else {
-		log("    %s %s (", cell_mappings[dff].cell_name.c_str(), dff.substr(1).c_str());
+		log("    %s %s (", cell_mappings[dff].cell_name, dff.substr(1));
 		bool first = true;
 		for (auto &port : cell_mappings[dff].ports) {
 			char arg[3] = { port.second, 0, 0 };
@@ -46,7 +46,7 @@ static void logmap(IdString dff)
 				arg[1] = arg[0] - ('a' - 'A'), arg[0] = '~';
 			else
 				arg[1] = arg[0], arg[0] = ' ';
-			log("%s.%s(%s)", first ? "" : ", ", port.first.c_str(), arg);
+			log("%s.%s(%s)", first ? "" : ", ", port.first, arg);
 			first = false;
 		}
 		log(");\n");
@@ -117,11 +117,11 @@ static bool parse_next_state(const LibertyAst *cell, const LibertyAst *attr, std
 	// the next_state variable isn't just a pin name; perhaps this is an enable?
 	auto helper = LibertyExpression::Lexer(expr);
 	auto tree = LibertyExpression::parse(helper);
-	// log_debug("liberty expression:\n%s\n", tree.str().c_str());
+	// log_debug("liberty expression:\n%s\n", tree.str());
 
 	if (tree.kind == LibertyExpression::Kind::EMPTY) {
 		if (!warned_cells.count(cell_name)) {
-			log_debug("Invalid expression '%s' in next_state attribute of cell '%s' - skipping.\n", expr.c_str(), cell_name.c_str());
+			log_debug("Invalid expression '%s' in next_state attribute of cell '%s' - skipping.\n", expr, cell_name);
 			warned_cells.insert(cell_name);
 		}
 		return false;
@@ -135,12 +135,12 @@ static bool parse_next_state(const LibertyAst *cell, const LibertyAst *attr, std
 	if (ff == nullptr || ff->args.size() != 2)
 		return false;
 	auto ff_output = ff->args.at(0);
-	
+
 	// This test is redundant with the one in enable_pin, but we're in a
 	// position that gives better diagnostics here.
 	if (!pin_names.count(ff_output)) {
 		if (!warned_cells.count(cell_name)) {
-			log_debug("Inference failed on expression '%s' in next_state attribute of cell '%s' because it does not contain ff output '%s' - skipping.\n", expr.c_str(), cell_name.c_str(), ff_output.c_str());
+			log_debug("Inference failed on expression '%s' in next_state attribute of cell '%s' because it does not contain ff output '%s' - skipping.\n", expr, cell_name, ff_output);
 			warned_cells.insert(cell_name);
 		}
 		return false;
@@ -166,30 +166,30 @@ static bool parse_next_state(const LibertyAst *cell, const LibertyAst *attr, std
 		// the ff output Q is in a known bit location, so we now just have to compare the LUT mask to known values to find the enable pin and polarity.
 		if (lut == 0xD8) {
 			data_name = pins[1];
-			enable_name = pins[0];	
+			enable_name = pins[0];
 			return true;
 		}
 		if (lut == 0xB8) {
 			data_name = pins[0];
-			enable_name = pins[1];	
+			enable_name = pins[1];
 			return true;
 		}
 		enable_not_inverted = false;
 		if (lut == 0xE4) {
 			data_name = pins[1];
-			enable_name = pins[0];	
+			enable_name = pins[0];
 			return true;
 		}
 		if (lut == 0xE2) {
 			data_name = pins[0];
-			enable_name = pins[1];	
+			enable_name = pins[1];
 			return true;
 		}
 		// this does not match an enable flop.
 	}
 
 	if (!warned_cells.count(cell_name)) {
-		log_debug("Inference failed on expression '%s' in next_state attribute of cell '%s' because it does not evaluate to an enable flop - skipping.\n", expr.c_str(), cell_name.c_str());
+		log_debug("Inference failed on expression '%s' in next_state attribute of cell '%s' because it does not evaluate to an enable flop - skipping.\n", expr, cell_name);
 		warned_cells.insert(cell_name);
 	}
 	return false;
@@ -225,10 +225,10 @@ static bool parse_pin(const LibertyAst *cell, const LibertyAst *attr, std::strin
        For now, we'll simply produce a warning to let the user know something is up.
 	*/
 	if (pin_name.find_first_of("^*|&") == std::string::npos) {
-		log_debug("Malformed liberty file - cannot find pin '%s' in cell '%s' - skipping.\n", pin_name.c_str(), cell->args[0].c_str());
+		log_debug("Malformed liberty file - cannot find pin '%s' in cell '%s' - skipping.\n", pin_name, cell->args[0]);
 	}
 	else {
-		log_debug("Found unsupported expression '%s' in pin attribute of cell '%s' - skipping.\n", pin_name.c_str(), cell->args[0].c_str());
+		log_debug("Found unsupported expression '%s' in pin attribute of cell '%s' - skipping.\n", pin_name, cell->args[0]);
 	}
 
 	return false;
@@ -488,7 +488,7 @@ static void find_cell_sr(std::vector<const LibertyAst *> cells, IdString cell_ty
 
 static void dfflibmap(RTLIL::Design *design, RTLIL::Module *module)
 {
-	log("Mapping DFF cells in module `%s':\n", module->name.c_str());
+	log("Mapping DFF cells in module `%s':\n", module->name);
 
 	dict<SigBit, pool<Cell*>> notmap;
 	SigMap sigmap(module);
@@ -553,11 +553,11 @@ static void dfflibmap(RTLIL::Design *design, RTLIL::Module *module)
 			new_cell->setPort("\\" + port.first, sig);
 		}
 
-		stats[stringf("  mapped %%d %s cells to %s cells.\n", cell_type.c_str(), new_cell->type.c_str())]++;
+		stats[stringf("%s cells to %s cells", cell_type, new_cell->type)]++;
 	}
 
 	for (auto &stat: stats)
-		log(stat.first.c_str(), stat.second);
+		log("  mapped %d %s.\n", stat.second, stat.first);
 }
 
 struct DfflibmapPass : public Pass {
@@ -687,10 +687,10 @@ struct DfflibmapPass : public Pass {
 		if (!map_only_mode) {
 			std::string dfflegalize_cmd = "dfflegalize";
 			for (auto it : cell_mappings)
-				dfflegalize_cmd += stringf(" -cell %s 01", it.first.c_str());
+				dfflegalize_cmd += stringf(" -cell %s 01", it.first);
 			dfflegalize_cmd += " t:$_DFF* t:$_SDFF*";
 			if (info_mode) {
-				log("dfflegalize command line: %s\n", dfflegalize_cmd.c_str());
+				log("dfflegalize command line: %s\n", dfflegalize_cmd);
 			} else {
 				Pass::call(design, dfflegalize_cmd);
 			}

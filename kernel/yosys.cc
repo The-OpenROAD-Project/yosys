@@ -177,7 +177,7 @@ int run_command(const std::string &command, std::function<void(const std::string
 
 	int ret = pclose(f);
 	if (ret < 0)
-		return -1;
+		return -2;
 #ifdef _WIN32
 	return ret;
 #else
@@ -196,6 +196,8 @@ void yosys_setup()
 	already_setup = true;
 	already_shutdown = false;
 
+	IdString::ensure_prepopulated();
+
 #ifdef WITH_PYTHON
 	// With Python 3.12, calling PyImport_AppendInittab on an already
 	// initialized platform fails (such as when libyosys is imported
@@ -210,10 +212,6 @@ void yosys_setup()
 
 	init_share_dirname();
 	init_abc_executable_name();
-
-#define X(_id) RTLIL::ID::_id = "\\" # _id;
-#include "kernel/constids.inc"
-#undef X
 
 	Pass::init_register();
 	yosys_design = new RTLIL::Design;
@@ -287,7 +285,7 @@ RTLIL::IdString new_id(std::string file, int line, std::string func)
 	if (pos != std::string::npos)
 		func = func.substr(pos+1);
 
-	return stringf("$auto$%s:%d:%s$%d", file.c_str(), line, func.c_str(), autoidx++);
+	return stringf("$auto$%s:%d:%s$%d", file, line, func, autoidx++);
 }
 
 RTLIL::IdString new_id_suffix(std::string file, int line, std::string func, std::string suffix)
@@ -304,7 +302,7 @@ RTLIL::IdString new_id_suffix(std::string file, int line, std::string func, std:
 	if (pos != std::string::npos)
 		func = func.substr(pos+1);
 
-	return stringf("$auto$%s:%d:%s$%s$%d", file.c_str(), line, func.c_str(), suffix.c_str(), autoidx++);
+	return stringf("$auto$%s:%d:%s$%s$%d", file, line, func, suffix, autoidx++);
 }
 
 RTLIL::Design *yosys_get_design()
@@ -320,7 +318,7 @@ const char *create_prompt(RTLIL::Design *design, int recursion_counter)
 		str += stringf("(%d) ", recursion_counter);
 	str += "yosys";
 	if (!design->selected_active_module.empty())
-		str += stringf(" [%s]", RTLIL::unescape_id(design->selected_active_module).c_str());
+		str += stringf(" [%s]", RTLIL::unescape_id(design->selected_active_module));
 	if (!design->full_selection()) {
 		if (design->selected_active_module.empty())
 			str += "*";
@@ -712,7 +710,7 @@ bool run_frontend(std::string filename, std::string command, RTLIL::Design *desi
 	  } else if (filename == "-") {
 	    command = "script";
 	  } else {
-	    log_error("Can't guess frontend for input file `%s' (missing -f option)!\n", filename.c_str());
+	    log_error("Can't guess frontend for input file `%s' (missing -f option)!\n", filename);
 	  }
 	}
 
@@ -733,7 +731,7 @@ bool run_frontend(std::string filename, std::string command, RTLIL::Design *desi
 			from_to_active = run_from.empty();
 		}
 
-		log("\n-- Executing script file `%s' --\n", filename.c_str());
+		log("\n-- Executing script file `%s' --\n", filename);
 
 		FILE *f = stdin;
 
@@ -743,7 +741,7 @@ bool run_frontend(std::string filename, std::string command, RTLIL::Design *desi
 		}
 
 		if (f == NULL)
-			log_error("Can't open script file `%s' for reading: %s\n", filename.c_str(), strerror(errno));
+			log_error("Can't open script file `%s' for reading: %s\n", filename, strerror(errno));
 
 		FILE *backup_script_file = Frontend::current_script_file;
 		Frontend::current_script_file = f;
@@ -792,9 +790,9 @@ bool run_frontend(std::string filename, std::string command, RTLIL::Design *desi
 	}
 
 	if (filename == "-") {
-		log("\n-- Parsing stdin using frontend `%s' --\n", command.c_str());
+		log("\n-- Parsing stdin using frontend `%s' --\n", command);
 	} else {
-		log("\n-- Parsing `%s' using frontend `%s' --\n", filename.c_str(), command.c_str());
+		log("\n-- Parsing `%s' using frontend `%s' --\n", filename, command);
 	}
 
 	if (command[0] == ' ') {
@@ -813,7 +811,7 @@ void run_pass(std::string command, RTLIL::Design *design)
 	if (design == nullptr)
 		design = yosys_design;
 
-	log("\n-- Running command `%s' --\n", command.c_str());
+	log("\n-- Running command `%s' --\n", command);
 
 	Pass::call(design, command);
 }
@@ -845,16 +843,16 @@ void run_backend(std::string filename, std::string command, RTLIL::Design *desig
 		else if (filename.empty())
 			return;
 		else
-			log_error("Can't guess backend for output file `%s' (missing -b option)!\n", filename.c_str());
+			log_error("Can't guess backend for output file `%s' (missing -b option)!\n", filename);
 	}
 
 	if (filename.empty())
 		filename = "-";
 
 	if (filename == "-") {
-		log("\n-- Writing to stdout using backend `%s' --\n", command.c_str());
+		log("\n-- Writing to stdout using backend `%s' --\n", command);
 	} else {
-		log("\n-- Writing to `%s' using backend `%s' --\n", filename.c_str(), command.c_str());
+		log("\n-- Writing to `%s' using backend `%s' --\n", filename, command);
 	}
 
 	Backend::backend_call(design, NULL, filename, command);

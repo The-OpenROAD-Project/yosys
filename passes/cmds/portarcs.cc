@@ -124,7 +124,8 @@ struct PortarcsPass : Pass {
 				TopoSort<SigBit> sort;
 
 				for (auto cell : m->cells())
-				if (cell->type != ID($buf)) {
+				// Ignore all bufnorm helper cells
+				if (!cell->type.in(ID($buf), ID($input_port), ID($connect))) {
 					auto tdata = tinfo.find(cell->type);
 					if (tdata == tinfo.end())
 						log_cmd_error("Missing timing data for module '%s'.\n", log_id(cell->type));
@@ -243,7 +244,7 @@ struct PortarcsPass : Pass {
 
 			if (draw_mode) {
 				auto bit_str = [](SigBit bit) {
-					return stringf("%s%d", RTLIL::unescape_id(bit.wire->name.str()).c_str(), bit.offset);
+					return stringf("%s%d", RTLIL::unescape_id(bit.wire->name.str()), bit.offset);
 				};
 
 				std::vector<std::string> headings;
@@ -278,7 +279,7 @@ struct PortarcsPass : Pass {
 				log("\n");
 
 				for (auto bit : outputs) {
-					log("  %10s  ", bit_str(bit).c_str());
+					log("  %10s  ", bit_str(bit));
 					int *p = annotations.at(canonical_bit(bit));
 					for (auto i = 0; i < inputs.size(); i++)
 						log("\033[48;5;%dm ", 232 + ((std::max(p[i], 0) * 24) - 1) / max_delay);

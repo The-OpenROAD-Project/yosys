@@ -59,7 +59,7 @@ void generate(RTLIL::Design *design, const std::vector<std::string> &celltypes, 
 		std::set<RTLIL::IdString> portnames;
 		std::set<RTLIL::IdString> parameters;
 		std::map<RTLIL::IdString, int> portwidths;
-		log("Generate module for cell type %s:\n", celltype.c_str());
+		log("Generate module for cell type %s:\n", celltype);
 
 		for (auto mod : design->modules())
 		for (auto cell : mod->cells())
@@ -605,9 +605,9 @@ void hierarchy_worker(RTLIL::Design *design, std::set<RTLIL::Module*, IdString::
 		return;
 
 	if (indent == 0)
-		log("Top module:  %s\n", mod->name.c_str());
+		log("Top module:  %s\n", mod->name);
 	else if (!mod->get_blackbox_attribute())
-		log("Used module: %*s%s\n", indent, "", mod->name.c_str());
+		log("Used module: %*s%s\n", indent, "", mod->name);
 	used.insert(mod);
 
 	for (auto cell : mod->cells()) {
@@ -647,7 +647,7 @@ void hierarchy_clean(RTLIL::Design *design, RTLIL::Module *top, bool purge_lib)
 	for (auto mod : del_modules) {
 		if (!purge_lib && mod->get_blackbox_attribute())
 			continue;
-		log("Removing unused module `%s'.\n", mod->name.c_str());
+		log("Removing unused module `%s'.\n", mod->name);
 		design->remove(mod);
 		del_counter++;
 	}
@@ -873,11 +873,11 @@ struct HierarchyPass : public Pass {
 					log("Port declaration: %s", decl.input ? decl.output ? "inout" : "input" : "output");
 					if (decl.index >= 1)
 						log(" [at position %d]", decl.index);
-					log(" %s\n", decl.portname.c_str());
+					log(" %s\n", decl.portname);
 					generate_ports.push_back(decl);
 					continue;
 				is_celltype:
-					log("Celltype: %s\n", args[argidx].c_str());
+					log("Celltype: %s\n", args[argidx]);
 					generate_cells.push_back(RTLIL::unescape_id(args[argidx]));
 				}
 				continue;
@@ -937,7 +937,7 @@ struct HierarchyPass : public Pass {
 				const std::string &value = args[++argidx];
 				auto r = parameters.emplace(key, value);
 				if (!r.second) {
-					log_warning("-chparam %s already specified: overwriting.\n", key.c_str());
+					log_warning("-chparam %s already specified: overwriting.\n", key);
 					r.first->second = value;
 				}
 				continue;
@@ -957,7 +957,7 @@ struct HierarchyPass : public Pass {
 				for (auto &para : parameters) {
 					SigSpec sig_value;
 					if (!RTLIL::SigSpec::parse(sig_value, NULL, para.second))
-						log_cmd_error("Can't decode value '%s'!\n", para.second.c_str());
+						log_cmd_error("Can't decode value '%s'!\n", para.second);
 					top_parameters[RTLIL::escape_id(para.first)] = sig_value.as_const();
 				}
 			}
@@ -991,7 +991,7 @@ struct HierarchyPass : public Pass {
 			}
 #endif
 			if (top_mod == NULL)
-				log_cmd_error("Module `%s' not found!\n", load_top_mod.c_str());
+				log_cmd_error("Module `%s' not found!\n", load_top_mod);
 		} else {
 #ifdef YOSYS_ENABLE_VERIFIC
 			if (verific_import_pending)
@@ -1045,7 +1045,7 @@ struct HierarchyPass : public Pass {
 			for (auto &para : parameters) {
 				SigSpec sig_value;
 				if (!RTLIL::SigSpec::parse(sig_value, NULL, para.second))
-					log_cmd_error("Can't decode value '%s'!\n", para.second.c_str());
+					log_cmd_error("Can't decode value '%s'!\n", para.second);
 				top_parameters[RTLIL::escape_id(para.first)] = sig_value.as_const();
 			}
 
@@ -1147,6 +1147,25 @@ struct HierarchyPass : public Pass {
 					log("Module %s directly or indirectly contains formal properties -> setting \"keep\" attribute.\n", log_id(mod));
 					mod->set_bool_attribute(ID::keep);
 				}
+		}
+
+		if (flag_simcheck || flag_smtcheck) {
+			for (auto mod : design->modules()) {
+				for (auto cell : mod->cells()) {
+					if (!cell->type.in(ID($check), ID($assert), ID($assume), ID($live), ID($fair), ID($cover)))
+						continue;
+					if (!cell->has_attribute(ID(unsupported_sva)))
+						continue;
+
+					auto src = cell->get_src_attribute();
+
+					if (!src.empty())
+						src += ": ";
+
+					log_error("%sProperty `%s' in module `%s' uses unsupported SVA constructs. See frontend warnings for details, run `chformal -remove a:unsupported_sva' to ignore.\n",
+						src, log_id(cell->name), log_id(mod->name));
+				}
+			}
 		}
 
 		if (!keep_positionals)

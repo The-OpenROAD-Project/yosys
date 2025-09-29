@@ -193,7 +193,7 @@ bool AstNode::get_bool_attribute(RTLIL::IdString id)
 
 	auto& attr = attributes.at(id);
 	if (attr->type != AST_CONSTANT)
-		attr->input_error("Attribute `%s' with non-constant value!\n", id.c_str());
+		attr->input_error("Attribute `%s' with non-constant value!\n", id);
 
 	return attr->integer != 0;
 }
@@ -922,7 +922,7 @@ std::unique_ptr<AstNode> AstNode::mktemp_logic(AstSrcLocType loc, const std::str
 {
 	auto wire_owned = std::make_unique<AstNode>(loc, AST_WIRE, std::make_unique<AstNode>(loc, AST_RANGE, mkconst_int(loc, range_left, true), mkconst_int(loc, range_right, true)));
 	auto* wire = wire_owned.get();
-	wire->str = stringf("%s%s:%d$%d", name.c_str(), RTLIL::encode_filename(*location.begin.filename).c_str(), location.begin.line, autoidx++);
+	wire->str = stringf("%s%s:%d$%d", name, RTLIL::encode_filename(*location.begin.filename), location.begin.line, autoidx++);
 	if (nosync)
 		wire->set_attribute(ID::nosync, AstNode::mkconst_int(loc, 1, false));
 	wire->is_signed = is_signed;
@@ -1076,8 +1076,10 @@ RTLIL::Const AstNode::realAsConst(int width)
 		bool is_negative = v < 0;
 		if (is_negative)
 			v *= -1;
+		RTLIL::Const::Builder b(width);
 		for (int i = 0; i < width; i++, v /= 2)
-			result.bits().push_back((fmod(floor(v), 2) != 0) ? RTLIL::State::S1 : RTLIL::State::S0);
+			b.push_back((fmod(floor(v), 2) != 0) ? RTLIL::State::S1 : RTLIL::State::S0);
+		result = b.build();
 		if (is_negative)
 			result = const_neg(result, result, false, false, result.size());
 	}
@@ -1108,9 +1110,9 @@ static RTLIL::Module *process_module(RTLIL::Design *design, AstNode *ast, bool d
 	log_assert(ast->type == AST_MODULE || ast->type == AST_INTERFACE);
 
 	if (defer)
-		log("Storing AST representation for module `%s'.\n", ast->str.c_str());
+		log("Storing AST representation for module `%s'.\n", ast->str);
 	else if (!quiet) {
-		log("Generating RTLIL representation for module `%s'.\n", ast->str.c_str());
+		log("Generating RTLIL representation for module `%s'.\n", ast->str);
 	}
 
 	AstModule *module = new AstModule;
@@ -1143,7 +1145,7 @@ static RTLIL::Module *process_module(RTLIL::Design *design, AstNode *ast, bool d
 	{
 		for (auto& node : ast->children)
 			if (node->type == AST_PARAMETER && param_has_no_default(node.get()))
-				node->input_error("Parameter `%s' has no default value and has not been overridden!\n", node->str.c_str());
+				node->input_error("Parameter `%s' has no default value and has not been overridden!\n", node->str);
 
 		bool blackbox_module = flag_lib;
 
@@ -1256,7 +1258,7 @@ static RTLIL::Module *process_module(RTLIL::Design *design, AstNode *ast, bool d
 		for (auto &attr : ast->attributes) {
 			log_assert((bool)attr.second.get());
 			if (attr.second->type != AST_CONSTANT)
-				ast->input_error("Attribute `%s' with non-constant value!\n", attr.first.c_str());
+				ast->input_error("Attribute `%s' with non-constant value!\n", attr.first);
 			module->attributes[attr.first] = attr.second->asAttrConst();
 		}
 		for (size_t i = 0; i < ast->children.size(); i++) {
@@ -1411,7 +1413,7 @@ void AST::process(RTLIL::Design *design, AstNode *ast, bool nodisplay, bool dump
 			for (auto& n : design->verilog_packages) {
 				for (auto &o : n->children) {
 					auto cloned_node = o->clone();
-					// log("cloned node %s\n", type2str(cloned_node->type).c_str());
+					// log("cloned node %s\n", type2str(cloned_node->type));
 					if (cloned_node->type == AST_ENUM) {
 						for (auto &e : cloned_node->children) {
 							log_assert(e->type == AST_ENUM_ITEM);
@@ -1432,7 +1434,7 @@ void AST::process(RTLIL::Design *design, AstNode *ast, bool nodisplay, bool dump
 				for (const auto& node : child->children)
 					if (node->type == AST_PARAMETER && param_has_no_default(node.get()))
 					{
-						log("Deferring `%s' because it contains parameter(s) without defaults.\n", child->str.c_str());
+						log("Deferring `%s' because it contains parameter(s) without defaults.\n", child->str);
 						defer_local = true;
 						break;
 					}
@@ -1444,7 +1446,7 @@ void AST::process(RTLIL::Design *design, AstNode *ast, bool nodisplay, bool dump
 			if (design->has(child->str)) {
 				RTLIL::Module *existing_mod = design->module(child->str);
 				if (!nooverwrite && !overwrite && !existing_mod->get_blackbox_attribute()) {
-					log_file_error(*child->location.begin.filename, child->location.begin.line, "Re-definition of module `%s'!\n", child->str.c_str());
+					log_file_error(*child->location.begin.filename, child->location.begin.line, "Re-definition of module `%s'!\n", child->str);
 				} else if (nooverwrite) {
 					log("Ignoring re-definition of module `%s' at %s.\n",
 							child->str.c_str(), child->loc_string().c_str());
@@ -1507,7 +1509,7 @@ std::pair<std::string,std::string> AST::split_modport_from_type(std::string name
 			interface_modport = seglist[1];
 		}
 		else { // Erroneous port type
-			log_error("More than two '.' in signal port type (%s)\n", name_type.c_str());
+			log_error("More than two '.' in signal port type (%s)\n", name_type);
 		}
 	}
 	return std::pair<std::string,std::string>(interface_type, interface_modport);
@@ -1720,7 +1722,7 @@ RTLIL::IdString AstModule::derive(RTLIL::Design *design, const dict<RTLIL::IdStr
 				new_subcell->set_bool_attribute(ID::is_interface);
 			}
 			else {
-				log_error("No port with matching name found (%s) in %s. Stopping\n", log_id(intf.first), modname.c_str());
+				log_error("No port with matching name found (%s) in %s. Stopping\n", log_id(intf.first), modname);
 			}
 		}
 
@@ -1731,7 +1733,7 @@ RTLIL::IdString AstModule::derive(RTLIL::Design *design, const dict<RTLIL::IdStr
 
 	} else {
 		modname = new_modname;
-		log("Found cached RTLIL representation for module `%s'.\n", modname.c_str());
+		log("Found cached RTLIL representation for module `%s'.\n", modname);
 	}
 
 	return modname;
@@ -1750,7 +1752,7 @@ RTLIL::IdString AstModule::derive(RTLIL::Design *design, const dict<RTLIL::IdStr
 		process_module(design, new_ast.get(), false, NULL, quiet);
 		design->module(modname)->check();
 	} else if (!quiet) {
-		log("Found cached RTLIL representation for module `%s'.\n", modname.c_str());
+		log("Found cached RTLIL representation for module `%s'.\n", modname);
 	}
 
 	return modname;
@@ -1773,7 +1775,7 @@ static std::string serialize_param_value(const RTLIL::Const &val) {
 std::string AST::derived_module_name(std::string stripped_name, const std::vector<std::pair<RTLIL::IdString, RTLIL::Const>> &parameters) {
 	std::string para_info;
 	for (const auto &elem : parameters)
-		para_info += stringf("%s=%s", elem.first.c_str(), serialize_param_value(elem.second).c_str());
+		para_info += stringf("%s=%s", elem.first, serialize_param_value(elem.second));
 
 	if (para_info.size() > 60)
 		return "$paramod$" + sha1(para_info) + stripped_name;
@@ -1799,14 +1801,14 @@ std::string AstModule::derive_common(RTLIL::Design *design, const dict<RTLIL::Id
 		auto it = parameters.find(child->str);
 		if (it != parameters.end()) {
 			if (!quiet)
-				log("Parameter %s = %s\n", child->str.c_str(), log_signal(it->second));
+				log("Parameter %s = %s\n", child->str, log_signal(it->second));
 			named_parameters.emplace_back(child->str, it->second);
 			continue;
 		}
 		it = parameters.find(stringf("$%d", para_counter));
 		if (it != parameters.end()) {
 			if (!quiet)
-				log("Parameter %d (%s) = %s\n", para_counter, child->str.c_str(), log_signal(it->second));
+				log("Parameter %d (%s) = %s\n", para_counter, child->str, log_signal(it->second));
 			named_parameters.emplace_back(child->str, it->second);
 			continue;
 		}
@@ -1820,7 +1822,7 @@ std::string AstModule::derive_common(RTLIL::Design *design, const dict<RTLIL::Id
 		return modname;
 
 	if (!quiet)
-		log_header(design, "Executing AST frontend in derive mode using pre-parsed AST for module `%s'.\n", stripped_name.c_str());
+		log_header(design, "Executing AST frontend in derive mode using pre-parsed AST for module `%s'.\n", stripped_name);
 	loadconfig();
 
 	pool<IdString> rewritten;
@@ -1839,13 +1841,13 @@ std::string AstModule::derive_common(RTLIL::Design *design, const dict<RTLIL::Id
 		auto it = parameters.find(child->str);
 		if (it != parameters.end()) {
 			if (!quiet)
-				log("Parameter %s = %s\n", child->str.c_str(), log_signal(it->second));
+				log("Parameter %s = %s\n", child->str, log_signal(it->second));
 			goto rewrite_parameter;
 		}
 		it = parameters.find(stringf("$%d", para_counter));
 		if (it != parameters.end()) {
 			if (!quiet)
-				log("Parameter %d (%s) = %s\n", para_counter, child->str.c_str(), log_signal(it->second));
+				log("Parameter %d (%s) = %s\n", para_counter, child->str, log_signal(it->second));
 			goto rewrite_parameter;
 		}
 		continue;
@@ -1922,11 +1924,9 @@ void AstModule::loadconfig() const
 	flag_autowire = autowire;
 }
 
-void AstNode::input_error(const char *format, ...) const
+void AstNode::formatted_input_error(std::string str) const
 {
-	va_list ap;
-	va_start(ap, format);
-	logv_file_error(*location.begin.filename, location.begin.line, format, ap);
+	log_formatted_file_error(*location.begin.filename, location.begin.line, std::move(str));
 }
 
 YOSYS_NAMESPACE_END

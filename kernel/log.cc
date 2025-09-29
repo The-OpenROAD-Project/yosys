@@ -68,8 +68,6 @@ int log_debug_suppressed = 0;
 
 vector<int> header_count;
 vector<char*> log_id_cache;
-vector<shared_str> string_buf;
-int string_buf_index = -1;
 
 static struct timeval initial_tv = { 0, 0 };
 static bool next_print_log = false;
@@ -102,17 +100,16 @@ int gettimeofday(struct timeval *tv, struct timezone *tz)
 }
 #endif
 
-void logv(const char *format, va_list ap)
-{
-	while (format[0] == '\n' && format[1] != 0) {
-		log("\n");
-		format++;
+static void logv_string(std::string_view format, std::string str) {
+	size_t remove_leading = 0;
+	while (format.size() > 1 && format[0] == '\n') {
+		logv_string("\n", "\n");
+		format = format.substr(1);
+		++remove_leading;
 	}
-
-	if (log_make_debug && !ys_debug(1))
-		return;
-
-	std::string str = vstringf(format, ap);
+	if (remove_leading > 0) {
+		str = str.substr(remove_leading);
+	}
 
 	if (str.empty())
 		return;
@@ -145,13 +142,13 @@ void logv(const char *format, va_list ap)
 			time_str += stringf("[%05d.%06d] ", int(tv.tv_sec), int(tv.tv_usec));
 		}
 
-		if (format[0] && format[strlen(format)-1] == '\n')
+		if (!format.empty() && format[format.size() - 1] == '\n')
 			next_print_log = true;
 
 		// Special case to detect newlines in Python log output, since
 		// the binding always calls `log("%s", payload)` and the newline
 		// is then in the first formatted argument
-		if (!strcmp(format, "%s") && str.back() == '\n')
+		if (format == "%s" && str.back() == '\n')
 			next_print_log = true;
 
 		for (auto f : log_files)
@@ -190,7 +187,7 @@ void logv(const char *format, va_list ap)
 			if (!linebuffer.empty() && linebuffer.back() == '\n') {
 				for (auto &re : log_warn_regexes)
 					if (std::regex_search(linebuffer, re))
-						log_warning("Found log message matching -W regex:\n%s", str.c_str());
+						log_warning("Found log message matching -W regex:\n%s", str);
 
 				for (auto &[_, item] : log_expect_log)
 					if (std::regex_search(linebuffer, item.pattern))
@@ -204,7 +201,14 @@ void logv(const char *format, va_list ap)
 	}
 }
 
-void logv_header(RTLIL::Design *design, const char *format, va_list ap)
+void log_formatted_string(std::string_view format, std::string str)
+{
+	if (log_make_debug && !ys_debug(1))
+		return;
+	logv_string(format, std::move(str));
+}
+
+void log_formatted_header(RTLIL::Design *design, std::string_view format, std::string str)
 {
 	bool pop_errfile = false;
 
@@ -222,8 +226,8 @@ void logv_header(RTLIL::Design *design, const char *format, va_list ap)
 	for (int c : header_count)
 		header_id += stringf("%s%d", header_id.empty() ? "" : ".", c);
 
-	log("%s. ", header_id.c_str());
-	logv(format, ap);
+	log("%s. ", header_id);
+	log_formatted_string(format, std::move(str));
 	log_flush();
 
 	if (log_hdump_all)
@@ -231,7 +235,7 @@ void logv_header(RTLIL::Design *design, const char *format, va_list ap)
 
 	if (log_hdump.count(header_id) && design != nullptr)
 		for (auto &filename : log_hdump.at(header_id)) {
-			log("Dumping current design to '%s'.\n", filename.c_str());
+			log("Dumping current design to '%s'.\n", filename);
 			if (yosys_xtrace)
 				IdString::xtrace_db_dump();
 			Pass::call(design, {"dump", "-o", filename});
@@ -243,10 +247,8 @@ void logv_header(RTLIL::Design *design, const char *format, va_list ap)
 		log_files.pop_back();
 }
 
-static void logv_warning_with_prefix(const char *prefix,
-                                     const char *format, va_list ap)
+void log_formatted_warning(std::string_view prefix, std::string message)
 {
-	std::string message = vstringf(format, ap);
 	bool suppressed = false;
 
 	for (auto &re : log_nowarn_regexes)
@@ -255,7 +257,7 @@ static void logv_warning_with_prefix(const char *prefix,
 
 	if (suppressed)
 	{
-		log("Suppressed %s%s", prefix, message.c_str());
+		log("Suppressed %s%s", prefix, message);
 	}
 	else
 	{
@@ -264,7 +266,7 @@ static void logv_warning_with_prefix(const char *prefix,
 
 		for (auto &re : log_werror_regexes)
 			if (std::regex_search(message, re))
-				log_error("%s",  message.c_str());
+				log_error("%s", message);
 
 		bool warning_match = false;
 		for (auto &[_, item] : log_expect_warning)
@@ -281,7 +283,7 @@ static void logv_warning_with_prefix(const char *prefix,
 
 		if (log_warnings.count(message))
 		{
-			log("%s%s", prefix, message.c_str());
+			log("%s%s", prefix, message);
 			log_flush();
 		}
 		else
@@ -289,7 +291,7 @@ static void logv_warning_with_prefix(const char *prefix,
 			if (log_errfile != NULL && !log_quiet_warnings)
 				log_files.push_back(log_errfile);
 
-			log("%s%s", prefix, message.c_str());
+			log("%s%s", prefix, message);
 			log_flush();
 
 			if (log_errfile != NULL && !log_quiet_warnings)
@@ -305,41 +307,19 @@ static void logv_warning_with_prefix(const char *prefix,
 	}
 }
 
-void logv_warning(const char *format, va_list ap)
+void log_formatted_file_warning(std::string_view filename, int lineno, std::string str)
 {
-	logv_warning_with_prefix("Warning: ", format, ap);
+	std::string prefix = stringf("%s:%d: Warning: ", filename, lineno);
+	log_formatted_warning(prefix, std::move(str));
 }
 
-void logv_warning_noprefix(const char *format, va_list ap)
+void log_formatted_file_info(std::string_view filename, int lineno, std::string str)
 {
-	logv_warning_with_prefix("", format, ap);
-}
-
-void log_file_warning(const std::string &filename, int lineno,
-                      const char *format, ...)
-{
-	va_list ap;
-	va_start(ap, format);
-	std::string prefix = stringf("%s:%d: Warning: ",
-			filename.c_str(), lineno);
-	logv_warning_with_prefix(prefix.c_str(), format, ap);
-	va_end(ap);
-}
-
-void log_file_info(const std::string &filename, int lineno,
-                      const char *format, ...)
-{
-	va_list ap;
-	va_start(ap, format);
-	std::string fmt = stringf("%s:%d: Info: %s",
-			filename.c_str(), lineno, format);
-	logv(fmt.c_str(), ap);
-	va_end(ap);
+	log("%s:%d: Info: %s", filename, lineno, str);
 }
 
 [[noreturn]]
-static void logv_error_with_prefix(const char *prefix,
-                                   const char *format, va_list ap)
+static void log_error_with_prefix(std::string_view prefix, std::string str)
 {
 #ifdef EMSCRIPTEN
 	auto backup_log_files = log_files;
@@ -351,13 +331,15 @@ static void logv_error_with_prefix(const char *prefix,
 	if (log_errfile != NULL)
 		log_files.push_back(log_errfile);
 
-	if (log_error_stderr)
+	if (log_error_stderr) {
+		log_flush(); // Make sure we flush stdout before replacing it with stderr
 		for (auto &f : log_files)
 			if (f == stdout)
 				f = stderr;
+	}
 
-	log_last_error = vstringf(format, ap);
-	log("%s%s", prefix, log_last_error.c_str());
+	log_last_error = std::move(str);
+	log("%s%s", prefix, log_last_error);
 	log_flush();
 
 	log_make_debug = bak_log_make_debug;
@@ -390,86 +372,50 @@ static void logv_error_with_prefix(const char *prefix,
 #endif
 }
 
-void logv_error(const char *format, va_list ap)
+void log_formatted_file_error(std::string_view filename, int lineno, std::string str)
 {
-	logv_error_with_prefix("ERROR: ", format, ap);
+	std::string prefix = stringf("%s:%d: ERROR: ", filename, lineno);
+	log_error_with_prefix(prefix, str);
 }
 
 void logv_file_error(const string &filename, int lineno,
                      const char *format, va_list ap)
 {
-	std::string prefix = stringf("%s:%d: ERROR: ",
-				     filename.c_str(), lineno);
-	logv_error_with_prefix(prefix.c_str(), format, ap);
+	log_formatted_file_error(filename, lineno, vstringf(format, ap));
 }
 
-void log_file_error(const string &filename, int lineno,
-                    const char *format, ...)
+void log_experimental(const std::string &str)
 {
-	va_list ap;
-	va_start(ap, format);
-	logv_file_error(filename, lineno, format, ap);
-}
-
-void log(const char *format, ...)
-{
-	va_list ap;
-	va_start(ap, format);
-	logv(format, ap);
-	va_end(ap);
-}
-
-void log_header(RTLIL::Design *design, const char *format, ...)
-{
-	va_list ap;
-	va_start(ap, format);
-	logv_header(design, format, ap);
-	va_end(ap);
-}
-
-void log_warning(const char *format, ...)
-{
-	va_list ap;
-	va_start(ap, format);
-	logv_warning(format, ap);
-	va_end(ap);
-}
-
-void log_experimental(const char *format, ...)
-{
-	va_list ap;
-	va_start(ap, format);
-	string s = vstringf(format, ap);
-	va_end(ap);
-
-	if (log_experimentals_ignored.count(s) == 0 && log_experimentals.count(s) == 0) {
-		log_warning("Feature '%s' is experimental.\n", s.c_str());
-		log_experimentals.insert(s);
+	if (log_experimentals_ignored.count(str) == 0 && log_experimentals.count(str) == 0) {
+		log_warning("Feature '%s' is experimental.\n", str);
+		log_experimentals.insert(str);
 	}
 }
 
-void log_warning_noprefix(const char *format, ...)
+void log_formatted_error(std::string str)
 {
-	va_list ap;
-	va_start(ap, format);
-	logv_warning_noprefix(format, ap);
-	va_end(ap);
+	log_error_with_prefix("ERROR: ", std::move(str));
 }
 
-void log_error(const char *format, ...)
+void log_assert_failure(const char *expr, const char *file, int line)
 {
-	va_list ap;
-	va_start(ap, format);
-	logv_error(format, ap);
+	log_error("Assert `%s' failed in %s:%d.\n", expr, file, line);
 }
 
-void log_cmd_error(const char *format, ...)
+void log_abort_internal(const char *file, int line)
 {
-	va_list ap;
-	va_start(ap, format);
+	log_error("Abort in %s:%d.\n", file, line);
+}
 
+void log_yosys_abort_message(std::string_view file, int line, std::string_view func, std::string_view message)
+{
+	log_error("Abort in %s:%d (%s): %s\n", file, line, func, message);
+}
+
+void log_formatted_cmd_error(std::string str)
+{
 	if (log_cmd_error_throw) {
-		log_last_error = vstringf(format, ap);
+		log_last_error = str;
 
 		// Make sure the error message gets through any selective silencing
 		// of log output
@@ -479,7 +425,7 @@ void log_cmd_error(const char *format, ...)
 			pop_errfile = true;
 		}
 
-		log("ERROR: %s", log_last_error.c_str());
+		log("ERROR: %s", log_last_error);
 		log_flush();
 
 		if (pop_errfile)
@@ -488,7 +434,7 @@ void log_cmd_error(const char *format, ...)
 		throw log_cmd_error_exception();
 	}
 
-	logv_error(format, ap);
+	log_formatted_error(str);
 }
 
 void log_spacer()
@@ -506,8 +452,6 @@ void log_pop()
 {
 	header_count.pop_back();
 	log_id_cache_clear();
-	string_buf.clear();
-	string_buf_index = -1;
 	log_flush();
 }
 
@@ -613,8 +557,6 @@ void log_reset_stack()
 	while (header_count.size() > 1)
 		header_count.pop_back();
 	log_id_cache_clear();
-	string_buf.clear();
-	string_buf_index = -1;
 	log_flush();
 }
 
@@ -639,38 +581,19 @@ void log_dump_val_worker(RTLIL::State v) {
 	log("%s", log_signal(v));
 }
 
-const char *log_signal(const RTLIL::SigSpec &sig, bool autoint)
+std::string log_signal(const RTLIL::SigSpec &sig, bool autoint)
 {
 	std::stringstream buf;
 	RTLIL_BACKEND::dump_sigspec(buf, sig, autoint);
-
-	if (string_buf.size() < 100) {
-		string_buf.push_back(buf.str());
-		return string_buf.back().c_str();
-	} else {
-		if (++string_buf_index == 100)
-			string_buf_index = 0;
-		string_buf[string_buf_index] = buf.str();
-		return string_buf[string_buf_index].c_str();
-	}
+	return buf.str();
 }
 
-const char *log_const(const RTLIL::Const &value, bool autoint)
+std::string log_const(const RTLIL::Const &value, bool autoint)
 {
 	if ((value.flags & RTLIL::CONST_FLAG_STRING) == 0)
 		return log_signal(value, autoint);
 
-	std::string str = "\"" + value.decode_string() + "\"";
-
-	if (string_buf.size() < 100) {
-		string_buf.push_back(str);
-		return string_buf.back().c_str();
-	} else {
-		if (++string_buf_index == 100)
-			string_buf_index = 0;
-		string_buf[string_buf_index] = str;
-		return string_buf[string_buf_index].c_str();
-	}
+	return "\"" + value.decode_string() + "\"";
 }
 
 const char *log_id(const RTLIL::IdString &str)
@@ -680,35 +603,25 @@ const char *log_id(const RTLIL::IdString &str)
 	return log_id_cache.back();
 }
 
-const char *log_str(const char *str)
-{
-	log_id_cache.push_back(strdup(str));
-	return log_id_cache.back();
-}
-
-const char *log_str(std::string const &str) {
-	return log_str(str.c_str());
-}
-
 void log_module(RTLIL::Module *module, std::string indent)
 {
 	std::stringstream buf;
 	RTLIL_BACKEND::dump_module(buf, indent, module, module->design, false);
-	log("%s", buf.str().c_str());
+	log("%s", buf.str());
 }
 
 void log_cell(RTLIL::Cell *cell, std::string indent)
 {
 	std::stringstream buf;
 	RTLIL_BACKEND::dump_cell(buf, indent, cell);
-	log("%s", buf.str().c_str());
+	log("%s", buf.str());
 }
 
 void log_wire(RTLIL::Wire *wire, std::string indent)
 {
 	std::stringstream buf;
 	RTLIL_BACKEND::dump_wire(buf, indent, wire);
-	log("%s", buf.str().c_str());
+	log("%s", buf.str());
 }
 
 void log_check_expected()
@@ -727,7 +640,7 @@ void log_check_expected()
 	auto check = [&](const std::string kind, std::string pattern, LogExpectedItem item) {
 		if (item.current_count == 0) {
 			log_warn_regexes.clear();
-			log_error("Expected %s pattern '%s' not found !\n", kind.c_str(), pattern.c_str());
+			log_error("Expected %s pattern '%s' not found !\n", kind, pattern);
 		}
 		if (item.current_count != item.expected_count) {
 			log_warn_regexes.clear();
@@ -748,7 +661,7 @@ void log_check_expected()
 	auto check_err = [&](const std::string kind, std::string pattern, LogExpectedItem item) {
 		if (item.current_count == item.expected_count) {
 			log_warn_regexes.clear();
-			log("Expected %s pattern '%s' found !!!\n", kind.c_str(), pattern.c_str());
+			log("Expected %s pattern '%s' found !!!\n", kind, pattern);
 			yosys_shutdown();
 			#ifdef EMSCRIPTEN
 				throw 0;
@@ -759,7 +672,7 @@ void log_check_expected()
 			#endif
 		} else {
 			log_warn_regexes.clear();
-			log_error("Expected %s pattern '%s' not found !\n", kind.c_str(), pattern.c_str());
+			log_error("Expected %s pattern '%s' not found !\n", kind, pattern);
 		}
 	};
 	for (auto &[pattern, item] : expect_error)
@@ -791,14 +704,14 @@ dict<std::string, std::pair<std::string, int>> get_coverage_data()
 	dict<std::string, std::pair<std::string, int>> coverage_data;
 
 	for (auto &it : pass_register) {
-		std::string key = stringf("passes.%s", it.first.c_str());
+		std::string key = stringf("passes.%s", it.first);
 		coverage_data[key].first = stringf("%s:%d:%s", __FILE__, __LINE__, __FUNCTION__);
 		coverage_data[key].second += it.second->call_counter;
 	}
 
 	for (auto &it : extra_coverage_data) {
 		if (coverage_data.count(it.first))
-			log_warning("found duplicate coverage id \"%s\".\n", it.first.c_str());
+			log_warning("found duplicate coverage id \"%s\".\n", it.first);
 		coverage_data[it.first].first = it.second.first;
 		coverage_data[it.first].second += it.second.second;
 	}
