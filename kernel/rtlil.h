@@ -210,9 +210,14 @@ struct RTLIL::IdString
 
 	static int get_reference(const char *p)
 	{
+		return get_reference(std::string_view(p));
+	}
+
+	static int get_reference(std::string_view p)
+	{
 		log_assert(destruct_guard_ok);
 
-		auto it = global_id_index_.find((char*)p);
+		auto it = global_id_index_.find(p);
 		if (it != global_id_index_.end()) {
 	#ifndef YOSYS_NO_IDS_REFCNT
 			global_refcount_storage_.at(it->second)++;
@@ -226,14 +231,13 @@ struct RTLIL::IdString
 
 		ensure_prepopulated();
 
-		if (!p[0])
+		if (p.empty())
 			return 0;
 
 		log_assert(p[0] == '$' || p[0] == '\\');
-		log_assert(p[1] != 0);
-		for (const char *c = p; *c; c++)
-			if ((unsigned)*c <= (unsigned)' ')
-				log_error("Found control character or space (0x%02x) in string '%s' which is not allowed in RTLIL identifiers\n", *c, p);
+		for (char ch : p)
+			if ((unsigned)ch <= (unsigned)' ')
+				log_error("Found control character or space (0x%02x) in string '%s' which is not allowed in RTLIL identifiers\n", ch, std::string(p).c_str());
 
 	#ifndef YOSYS_NO_IDS_REFCNT
 		if (global_free_idx_list_.empty()) {
@@ -245,8 +249,11 @@ struct RTLIL::IdString
 
 		int idx = global_free_idx_list_.back();
 		global_free_idx_list_.pop_back();
-		global_id_storage_.at(idx) = strdup(p);
-		global_id_index_[global_id_storage_.at(idx)] = idx;
+		char* buf = static_cast<char*>(malloc(p.size() + 1));
+		memcpy(buf, p.data(), p.size());
+		buf[p.size()] = 0;
+		global_id_storage_.at(idx) = buf;
+		global_id_index_.insert(it, {std::string_view(buf, p.size()), idx});
 		global_refcount_storage_.at(idx)++;
 	#else
 		int idx = global_id_storage_.size();
@@ -255,7 +262,7 @@ struct RTLIL::IdString
 	#endif
 
 		if (yosys_xtrace) {
-			log("#X# New IdString '%s' with index %d.\n", p, idx);
+			log("#X# New IdString '%s' with index %d.\n", global_id_storage_.at(idx), idx);
 			log_backtrace("-X- ", yosys_xtrace-1);
 		}
 
@@ -322,13 +329,20 @@ struct RTLIL::IdString
 	inline IdString(const char *str) : index_(get_reference(str)) { }
 	inline IdString(const IdString &str) : index_(get_reference(str.index_)) { }
 	inline IdString(IdString &&str) : index_(str.index_) { str.index_ = 0; }
-	inline IdString(const std::string &str) : index_(get_reference(str.c_str())) { }
+	inline IdString(const std::string &str) : index_(get_reference(std::string_view(str))) { }
+	inline IdString(std::string_view str) : index_(get_reference(str)) { }
 	inline IdString(StaticId id) : index_(static_cast<short>(id)) {}
 	inline ~IdString() { put_reference(index_); }
 
 	inline void operator=(const IdString &rhs) {
 		put_reference(index_);
 		index_ = get_reference(rhs.index_);
+	}
+
+	inline void operator=(IdString &&rhs) {
+		put_reference(index_);
+		index_ = rhs.index_;
+		rhs.index_ = 0;
 	}
 
 	inline void operator=(const char *rhs) {
@@ -411,7 +425,7 @@ struct RTLIL::IdString
 	}
 
 	bool empty() const {
-		return c_str()[0] == 0;
+		return index_ == 0;
 	}
 
 	void clear() {
@@ -859,7 +873,7 @@ private:
 
 public:
 	Const() : flags(RTLIL::CONST_FLAG_NONE), tag(backing_tag::bits), bits_(std::vector<RTLIL::State>()) {}
-	Const(const std::string &str);
+	Const(std::string str);
 	Const(long long val); // default width is 32
 	Const(long long val, int width);
 	Const(RTLIL::State bit, int width = 1);
@@ -1680,7 +1694,7 @@ struct RTLIL::Design
 	// returns all selected unboxed whole modules, warning the user if any
 	// partially selected or boxed modules have been ignored
 	std::vector<RTLIL::Module*> selected_unboxed_whole_modules_warn() const { return selected_modules(SELECT_WHOLE_WARN, SB_UNBOXED_WARN); }
-#ifdef WITH_PYTHON
+#ifdef YOSYS_ENABLE_PYTHON
 	static std::map<unsigned int, RTLIL::Design*> *get_all_designs(void);
 #endif
 };
@@ -2040,7 +2054,7 @@ public:
 	RTLIL::SigSpec OriginalTag     (RTLIL::IdString name, const std::string &tag, const RTLIL::SigSpec &sig_a, const std::string &src = "");
 	RTLIL::SigSpec FutureFF        (RTLIL::IdString name, const RTLIL::SigSpec &sig_e, const std::string &src = "");
 
-#ifdef WITH_PYTHON
+#ifdef YOSYS_ENABLE_PYTHON
 	static std::map<unsigned int, RTLIL::Module*> *get_all_modules(void);
 #endif
 };
@@ -2093,7 +2107,7 @@ public:
 		return zero_index + start_offset;
 	}
 
-#ifdef WITH_PYTHON
+#ifdef YOSYS_ENABLE_PYTHON
 	static std::map<unsigned int, RTLIL::Wire*> *get_all_wires(void);
 #endif
 };
@@ -2110,7 +2124,7 @@ struct RTLIL::Memory : public RTLIL::NamedObject
 	Memory();
 
 	int width, start_offset, size;
-#ifdef WITH_PYTHON
+#ifdef YOSYS_ENABLE_PYTHON
 	~Memory();
 	static std::map<unsigned int, RTLIL::Memory*> *get_all_memorys(void);
 #endif
@@ -2168,7 +2182,7 @@ public:
 	template<typename T> void rewrite_sigspecs(T &functor);
 	template<typename T> void rewrite_sigspecs2(T &functor);
 
-#ifdef WITH_PYTHON
+#ifdef YOSYS_ENABLE_PYTHON
 	static std::map<unsigned int, RTLIL::Cell*> *get_all_cells(void);
 #endif
 
