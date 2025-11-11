@@ -28,6 +28,7 @@ ENABLE_HELP_SOURCE := 0
 
 # python wrappers
 ENABLE_PYOSYS := 0
+PYOSYS_USE_UV := 1
 
 # other configuration flags
 ENABLE_GCOV := 0
@@ -94,13 +95,13 @@ TARGETS = $(PROGRAM_PREFIX)yosys$(EXE) $(PROGRAM_PREFIX)yosys-config
 PRETTY = 1
 SMALL = 0
 
-# Unit test
-UNITESTPATH := tests/unit
-
 all: top-all
 
 YOSYS_SRC := $(dir $(firstword $(MAKEFILE_LIST)))
 VPATH := $(YOSYS_SRC)
+
+# Unit test
+UNITESTPATH := $(YOSYS_SRC)/tests/unit
 
 export CXXSTD ?= c++17
 CXXFLAGS := $(CXXFLAGS) -Wall -Wextra -ggdb -I. -I"$(YOSYS_SRC)" -MD -MP -D_YOSYS_ -fPIC -I$(PREFIX)/include
@@ -160,7 +161,7 @@ ifeq ($(OS), Haiku)
 CXXFLAGS += -D_DEFAULT_SOURCE
 endif
 
-YOSYS_VER := 0.58+89
+YOSYS_VER := 0.59+0
 YOSYS_MAJOR := $(shell echo $(YOSYS_VER) | cut -d'.' -f1)
 YOSYS_MINOR := $(shell echo $(YOSYS_VER) | cut -d'.' -f2 | cut -d'+' -f1)
 YOSYS_COMMIT := $(shell echo $(YOSYS_VER) | cut -d'+' -f2)
@@ -183,7 +184,7 @@ endif
 OBJS = kernel/version_$(GIT_REV).o
 
 bumpversion:
-	sed -i "/^YOSYS_VER := / s/+[0-9][0-9]*$$/+`git log --oneline 157aabb.. | wc -l`/;" Makefile
+	sed -i "/^YOSYS_VER := / s/+[0-9][0-9]*$$/+`git log --oneline 03eb220.. | wc -l`/;" Makefile
 
 ABCMKARGS = CC="$(CXX)" CXX="$(CXX)" ABC_USE_LIBSTDCXX=1 ABC_USE_NAMESPACE=abc VERBOSE=$(Q)
 
@@ -282,12 +283,11 @@ ifeq ($(WASI_SDK),)
 CXX = clang++
 AR = llvm-ar
 RANLIB = llvm-ranlib
-WASIFLAGS := -target wasm32-wasi --sysroot $(WASI_SYSROOT) $(WASIFLAGS)
+WASIFLAGS := -target wasm32-wasi $(WASIFLAGS)
 else
 CXX = $(WASI_SDK)/bin/clang++
 AR = $(WASI_SDK)/bin/ar
 RANLIB = $(WASI_SDK)/bin/ranlib
-WASIFLAGS := --sysroot $(WASI_SDK)/share/wasi-sysroot $(WASIFLAGS)
 endif
 CXXFLAGS := $(WASIFLAGS) -std=$(CXXSTD) $(OPT_LEVEL) -D_WASI_EMULATED_PROCESS_CLOCKS $(filter-out -fPIC,$(CXXFLAGS))
 LINKFLAGS := $(WASIFLAGS) -Wl,-z,stack-size=1048576 $(filter-out -rdynamic,$(LINKFLAGS))
@@ -352,16 +352,22 @@ PYTHON_OBJECTS = pyosys/wrappers.o kernel/drivers.o kernel/yosys.o passes/cmds/p
 
 ifeq ($(ENABLE_PYOSYS),1)
 # python-config --ldflags includes -l and -L, but LINKFLAGS is only -L
+
+UV_ENV :=
+ifeq ($(PYOSYS_USE_UV),1)
+UV_ENV := uv run  --no-project --with 'pybind11>3,<4' --with 'cxxheaderparser'
+endif
+
 LINKFLAGS += $(filter-out -l%,$(shell $(PYTHON_CONFIG) --ldflags))
 LIBS += $(shell $(PYTHON_CONFIG) --libs)
 EXE_LIBS += $(filter-out $(LIBS),$(shell $(PYTHON_CONFIG_FOR_EXE) --libs))
-PYBIND11_INCLUDE ?= $(shell $(PYTHON_EXECUTABLE) -m pybind11 --includes)
+PYBIND11_INCLUDE ?= $(shell $(UV_ENV) $(PYTHON_EXECUTABLE) -m pybind11 --includes)
 CXXFLAGS += -I$(PYBIND11_INCLUDE) -DYOSYS_ENABLE_PYTHON
 CXXFLAGS += $(shell $(PYTHON_CONFIG) --includes) -DYOSYS_ENABLE_PYTHON
 
 OBJS += $(PY_WRAPPER_FILE).o
-PY_GEN_SCRIPT = pyosys/generator.py
-PY_WRAP_INCLUDES := $(shell $(PYTHON_EXECUTABLE) $(PY_GEN_SCRIPT) --print-includes)
+PY_GEN_SCRIPT = $(YOSYS_SRC)/pyosys/generator.py
+PY_WRAP_INCLUDES := $(shell $(UV_ENV) $(PYTHON_EXECUTABLE) $(PY_GEN_SCRIPT) --print-includes)
 endif # ENABLE_PYOSYS
 
 ifeq ($(ENABLE_READLINE),1)
@@ -777,7 +783,7 @@ endif
 ifeq ($(ENABLE_PYOSYS),1)
 $(PY_WRAPPER_FILE).cc: $(PY_GEN_SCRIPT) pyosys/wrappers_tpl.cc $(PY_WRAP_INCLUDES) pyosys/hashlib.h
 	$(Q) mkdir -p $(dir $@)
-	$(P) $(PYTHON_EXECUTABLE) $(PY_GEN_SCRIPT) $(PY_WRAPPER_FILE).cc
+	$(P) $(UV_ENV) $(PYTHON_EXECUTABLE) $(PY_GEN_SCRIPT) $(PY_WRAPPER_FILE).cc
 endif
 
 %.o: %.cpp
@@ -1129,7 +1135,7 @@ DOC_TARGET ?= html
 docs: docs/prep
 	$(Q) $(MAKE) -C docs $(DOC_TARGET)
 
-clean: clean-py
+clean: clean-py clean-unit-test
 	rm -rf share
 	rm -f $(OBJS) $(GENFILES) $(TARGETS) $(EXTRA_TARGETS) $(EXTRA_OBJS)
 	rm -f kernel/version_*.o kernel/version_*.cc
@@ -1144,7 +1150,7 @@ clean: clean-py
 	rm -f tests/svinterfaces/*.log_stdout tests/svinterfaces/*.log_stderr tests/svinterfaces/dut_result.txt tests/svinterfaces/reference_result.txt tests/svinterfaces/a.out tests/svinterfaces/*_syn.v tests/svinterfaces/*.diff
 	rm -f  tests/tools/cmp_tbdata
 	rm -f $(addsuffix /run-test.mk,$(MK_TEST_DIRS))
-	-$(MAKE) -C docs clean
+	-$(MAKE) -C $(YOSYS_SRC)/docs clean
 	rm -rf docs/util/__pycache__
 	rm -f libyosys.so
 
@@ -1156,7 +1162,7 @@ clean-py:
 	rm -rf kernel/*.pyh
 
 clean-abc:
-	$(MAKE) -C abc DEP= clean
+	$(MAKE) -C $(YOSYS_SRC)/abc DEP= clean
 	rm -f $(PROGRAM_PREFIX)yosys-abc$(EXE) $(PROGRAM_PREFIX)yosys-libabc.a abc/abc-[0-9a-f]* abc/libabc-[0-9a-f]*.a .git-abc-submodule-hash
 
 mrproper: clean

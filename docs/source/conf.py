@@ -6,7 +6,7 @@ import os
 project = 'YosysHQ Yosys'
 author = 'YosysHQ GmbH'
 copyright ='2025 YosysHQ GmbH'
-yosys_ver = "0.58"
+yosys_ver = "0.59"
 
 # select HTML theme
 html_theme = 'furo-ys'
@@ -50,7 +50,7 @@ rst_prolog = """
    :language: yoscrypt
 """
 
-extensions = ['sphinx.ext.autosectionlabel', 'sphinxcontrib.bibtex']
+extensions = ['sphinx.ext.autosectionlabel', 'sphinxcontrib.bibtex', 'sphinx_inline_tabs']
 
 if os.getenv("READTHEDOCS"):
     # Use rtds_action if we are building on read the docs and have a github token env var

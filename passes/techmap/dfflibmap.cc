@@ -127,7 +127,7 @@ static bool parse_next_state(const LibertyAst *cell, const LibertyAst *attr, std
 		return false;
 	}
 
-	auto pin_names = pool<std::string>{};
+	auto pin_names = std::unordered_set<std::string>{};
 	tree.get_pin_names(pin_names);
 
 	// from the `ff` block, we know the flop output signal name for loopback.
@@ -156,7 +156,7 @@ static bool parse_next_state(const LibertyAst *cell, const LibertyAst *attr, std
 		auto pins = std::vector<std::string>(pin_names.begin(), pin_names.end());
 		int lut = 0;
 		for (int n = 0; n < 8; n++) {
-			auto values = dict<std::string, bool>{};
+			auto values = std::unordered_map<std::string, bool>{};
 			values.insert(std::make_pair(pins[0], (n & 1) == 1));
 			values.insert(std::make_pair(pins[1], (n & 2) == 2));
 			values.insert(std::make_pair(ff_output, (n & 4) == 4));
@@ -271,6 +271,13 @@ static void find_cell(std::vector<const LibertyAst *> cells, IdString cell_type,
 			continue;
 		if (!parse_next_state(cell, ff->find("next_state"), cell_next_pin, cell_next_pol, cell_enable_pin, cell_enable_pol) || (has_enable && (cell_enable_pin.empty() || cell_enable_pol != enapol)))
 			continue;
+
+		if (has_reset && !cell_next_pol) {
+			// next_state is negated
+			// we later propagate this inversion to the output,
+			// which requires the negation of the reset value
+			rstval = !rstval;
+		}
 		if (has_reset && rstval == false) {
 			if (!parse_pin(cell, ff->find("clear"), cell_rst_pin, cell_rst_pol) || cell_rst_pol != rstpol)
 				continue;
