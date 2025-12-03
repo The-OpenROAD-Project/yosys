@@ -23,6 +23,7 @@ ENABLE_VERIFIC_EDIF := 0
 ENABLE_VERIFIC_LIBERTY := 0
 ENABLE_COVER := 1
 ENABLE_LIBYOSYS := 0
+ENABLE_LIBYOSYS_STATIC := 0
 ENABLE_ZLIB := 1
 ENABLE_HELP_SOURCE := 0
 
@@ -161,7 +162,7 @@ ifeq ($(OS), Haiku)
 CXXFLAGS += -D_DEFAULT_SOURCE
 endif
 
-YOSYS_VER := 0.59+0
+YOSYS_VER := 0.60+0
 YOSYS_MAJOR := $(shell echo $(YOSYS_VER) | cut -d'.' -f1)
 YOSYS_MINOR := $(shell echo $(YOSYS_VER) | cut -d'.' -f2 | cut -d'+' -f1)
 YOSYS_COMMIT := $(shell echo $(YOSYS_VER) | cut -d'+' -f2)
@@ -184,7 +185,7 @@ endif
 OBJS = kernel/version_$(GIT_REV).o
 
 bumpversion:
-	sed -i "/^YOSYS_VER := / s/+[0-9][0-9]*$$/+`git log --oneline 03eb220.. | wc -l`/;" Makefile
+	sed -i "/^YOSYS_VER := / s/+[0-9][0-9]*$$/+`git log --oneline 5bafeb7.. | wc -l`/;" Makefile
 
 ABCMKARGS = CC="$(CXX)" CXX="$(CXX)" ABC_USE_LIBSTDCXX=1 ABC_USE_NAMESPACE=abc VERBOSE=$(Q)
 
@@ -342,6 +343,9 @@ endif
 
 ifeq ($(ENABLE_LIBYOSYS),1)
 TARGETS += libyosys.so
+ifeq ($(ENABLE_LIBYOSYS_STATIC),1)
+TARGETS += libyosys.a
+endif
 endif
 
 PY_WRAPPER_FILE = pyosys/wrappers
@@ -473,6 +477,9 @@ endif
 else
 ifeq ($(ABCEXTERNAL),)
 TARGETS := $(PROGRAM_PREFIX)yosys-abc$(EXE) $(TARGETS)
+endif
+ifeq ($(DISABLE_SPAWN),1)
+$(error ENABLE_ABC=1 requires either LINK_ABC=1 or DISABLE_SPAWN=0)
 endif
 endif
 endif
@@ -772,6 +779,9 @@ else
 	$(P) $(CXX) -o libyosys.so -shared -Wl,-soname,libyosys.so $(LINKFLAGS) $^ $(LIBS) $(LIBS_VERIFIC)
 endif
 
+libyosys.a: $(filter-out kernel/driver.o,$(OBJS))
+	$(P) $(AR) rcs $@ $^
+
 %.o: %.cc
 	$(Q) mkdir -p $(dir $@)
 	$(P) $(CXX) -o $@ -c $(CPPFLAGS) $(CXXFLAGS) $<
@@ -902,6 +912,7 @@ MK_TEST_DIRS += tests/arch/xilinx
 MK_TEST_DIRS += tests/bugpoint
 MK_TEST_DIRS += tests/opt
 MK_TEST_DIRS += tests/sat
+MK_TEST_DIRS += tests/sdc
 MK_TEST_DIRS += tests/sim
 MK_TEST_DIRS += tests/svtypes
 MK_TEST_DIRS += tests/techmap
@@ -1022,7 +1033,7 @@ install-dev: $(PROGRAM_PREFIX)yosys-config share
 
 install: $(TARGETS) $(EXTRA_TARGETS)
 	$(INSTALL_SUDO) mkdir -p $(DESTDIR)$(BINDIR)
-	$(INSTALL_SUDO) cp $(filter-out libyosys.so,$(TARGETS)) $(DESTDIR)$(BINDIR)
+	$(INSTALL_SUDO) cp $(filter-out libyosys.so libyosys.a,$(TARGETS)) $(DESTDIR)$(BINDIR)
 ifneq ($(filter $(PROGRAM_PREFIX)yosys,$(TARGETS)),)
 	if [ -n "$(STRIP)" ]; then $(INSTALL_SUDO) $(STRIP) -S $(DESTDIR)$(BINDIR)/$(PROGRAM_PREFIX)yosys; fi
 endif
@@ -1038,9 +1049,12 @@ ifeq ($(ENABLE_LIBYOSYS),1)
 	$(INSTALL_SUDO) mkdir -p $(DESTDIR)$(LIBDIR)
 	$(INSTALL_SUDO) cp libyosys.so $(DESTDIR)$(LIBDIR)/
 	if [ -n "$(STRIP)" ]; then $(INSTALL_SUDO) $(STRIP) -S $(DESTDIR)$(LIBDIR)/libyosys.so; fi
+ifeq ($(ENABLE_LIBYOSYS_STATIC),1)
+	$(INSTALL_SUDO) cp libyosys.a $(DESTDIR)$(LIBDIR)/
+endif
 ifeq ($(ENABLE_PYOSYS),1)
 	$(INSTALL_SUDO) mkdir -p $(DESTDIR)$(PYTHON_DESTDIR)/$(subst -,_,$(PROGRAM_PREFIX))pyosys
-	$(INSTALL_SUDO) cp pyosys/__init__.py $(DESTDIR)$(PYTHON_DESTDIR)/$(subst -,_,$(PROGRAM_PREFIX))pyosys/__init__.py
+	$(INSTALL_SUDO) cp $(YOSYS_SRC)/pyosys/__init__.py $(DESTDIR)$(PYTHON_DESTDIR)/$(subst -,_,$(PROGRAM_PREFIX))pyosys/__init__.py
 	$(INSTALL_SUDO) cp libyosys.so $(DESTDIR)$(PYTHON_DESTDIR)/$(subst -,_,$(PROGRAM_PREFIX))pyosys/libyosys.so
 	$(INSTALL_SUDO) cp -r share $(DESTDIR)$(PYTHON_DESTDIR)/$(subst -,_,$(PROGRAM_PREFIX))pyosys
 ifeq ($(ENABLE_ABC),1)
@@ -1060,6 +1074,9 @@ uninstall:
 	$(INSTALL_SUDO) rm -rvf $(DESTDIR)$(DATDIR)
 ifeq ($(ENABLE_LIBYOSYS),1)
 	$(INSTALL_SUDO) rm -vf $(DESTDIR)$(LIBDIR)/libyosys.so
+ifeq ($(ENABLE_LIBYOSYS_STATIC),1)
+	$(INSTALL_SUDO) rm -vf $(DESTDIR)$(LIBDIR)/libyosys.a
+endif
 ifeq ($(ENABLE_PYOSYS),1)
 	$(INSTALL_SUDO) rm -vf $(DESTDIR)$(PYTHON_DESTDIR)/$(subst -,_,$(PROGRAM_PREFIX))pyosys/libyosys.so
 	$(INSTALL_SUDO) rm -vf $(DESTDIR)$(PYTHON_DESTDIR)/$(subst -,_,$(PROGRAM_PREFIX))pyosys/__init__.py
@@ -1158,7 +1175,7 @@ clean-py:
 	rm -f $(PY_WRAPPER_FILE).inc.cc $(PY_WRAPPER_FILE).cc
 	rm -f $(PYTHON_OBJECTS)
 	rm -f *.whl
-	rm -f libyosys.so
+	rm -f libyosys.so libyosys.a
 	rm -rf kernel/*.pyh
 
 clean-abc:

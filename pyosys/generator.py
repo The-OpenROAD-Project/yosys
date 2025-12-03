@@ -164,11 +164,11 @@ pyosys_headers = [
                     {
                         "global_id_storage_",
                         "global_id_index_",
+                        "global_autoidx_id_storage_",
                         "global_refcount_storage_",
                         "global_free_idx_list_",
-                        "last_created_idx_ptr_",
-                        "last_created_idx_",
                         "builtin_ff_cell_types",
+                        "substrings",
                     }
                 ),
             ),
@@ -192,7 +192,7 @@ pyosys_headers = [
             ),
             PyosysClass("SigChunk"),
             PyosysClass("SigBit", hash_expr="s"),
-            PyosysClass("SigSpec", hash_expr="s", denylist={"chunks"}),
+            PyosysClass("SigSpec", hash_expr="s", denylist=frozenset({"chunks"})),
             PyosysClass(
                 "Cell",
                 ref_only=True,
@@ -453,7 +453,7 @@ class PyosysWrapperGenerator(object):
     ) -> str:
         is_method = isinstance(function, Method)
         function_return_type = function.return_type.format()
-        if class_basename == "Const" and function_return_type in {
+        if class_basename in {"Const","IdString"} and function_return_type in {
             "iterator",
             "const_iterator",
         }:
@@ -538,6 +538,8 @@ class PyosysWrapperGenerator(object):
                 python_name_override = "__ne__"
             elif function.operator == "<":
                 python_name_override = "__lt__"
+            elif function.operator == "[]" and function.const:
+                python_name_override = "__getitem__"
             else:
                 return
 
@@ -591,7 +593,10 @@ class PyosysWrapperGenerator(object):
             # care
             return
 
-        has_containers = self.register_containers(field)
+        self.register_containers(field)
+        rvp = "py::return_value_policy::copy"
+        if isinstance(field.type, Pointer):
+            rvp = "py::return_value_policy::reference_internal"
 
         definition_fn = f"def_{'readonly' if field.type.const else 'readwrite'}"
         if field.static:
@@ -603,7 +608,7 @@ class PyosysWrapperGenerator(object):
             f'"{field_python_basename}"',
             f"&{metadata.name}::{field.name}",
         ]
-        def_args.append("py::return_value_policy::copy")
+        def_args.append(rvp)
         print(
             f"\t\t\t.{definition_fn}({', '.join(def_args)})",
             file=self.f,

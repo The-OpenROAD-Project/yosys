@@ -188,7 +188,7 @@ extern char yosys_path[PATH_MAX];
 #endif
 #ifdef YOSYS_ENABLE_TCL
 namespace Yosys {
-	extern int yosys_tcl_iterp_init(Tcl_Interp *interp);
+	extern int yosys_tcl_interp_init(Tcl_Interp *interp);
 	extern void yosys_tcl_activate_repl();
 };
 #endif
@@ -610,7 +610,7 @@ int main(int argc, char **argv)
 	if (run_tcl_shell) {
 #ifdef YOSYS_ENABLE_TCL
 		yosys_tcl_activate_repl();
-		Tcl_Main(argc, argv, yosys_tcl_iterp_init);
+		Tcl_Main(argc, argv, yosys_tcl_interp_init);
 #else
 		log_error("Can't exectue TCL shell: this version of yosys is not built with TCL support enabled.\n");
 #endif
@@ -706,9 +706,16 @@ int main(int argc, char **argv)
 
 		for (auto &it : pass_register)
 			if (it.second->call_counter) {
-				total_ns += it.second->runtime_ns + 1;
-				timedat.insert(make_tuple(it.second->runtime_ns + 1, it.second->call_counter, it.first));
+				auto pass_ns = it.second->runtime_ns + 1;
+				total_ns += pass_ns;
+				timedat.insert(make_tuple(pass_ns, it.second->call_counter, it.first));
 			}
+		{
+			auto gc_ns = RTLIL::OwningIdString::garbage_collection_ns() + 1;
+			total_ns += gc_ns;
+			timedat.insert(make_tuple(gc_ns,
+					RTLIL::OwningIdString::garbage_collection_count(), "id_gc"));
+		}
 
 		if (timing_details)
 		{

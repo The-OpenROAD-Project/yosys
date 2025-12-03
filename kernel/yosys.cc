@@ -19,6 +19,7 @@
 
 #include "kernel/yosys.h"
 #include "kernel/celltypes.h"
+#include "kernel/log.h"
 
 #ifdef YOSYS_ENABLE_READLINE
 #  include <readline/readline.h>
@@ -80,7 +81,7 @@ extern "C" PyObject* PyInit_pyosys();
 
 YOSYS_NAMESPACE_BEGIN
 
-int autoidx = 1;
+Autoidx autoidx(1);
 int yosys_xtrace = 0;
 bool yosys_write_versions = true;
 const char* yosys_maybe_version() {
@@ -95,6 +96,7 @@ CellTypes yosys_celltypes;
 
 #ifdef YOSYS_ENABLE_TCL
 Tcl_Interp *yosys_tcl_interp = NULL;
+Tcl_Interp *yosys_sdc_interp = NULL;
 #endif
 
 std::set<std::string> yosys_input_files, yosys_output_files;
@@ -107,8 +109,29 @@ uint32_t Hasher::fudge = 0;
 std::string yosys_share_dirname;
 std::string yosys_abc_executable;
 
+bool Multithreading::active_ = false;
+
 void init_share_dirname();
 void init_abc_executable_name();
+
+Multithreading::Multithreading() {
+	log_assert(!active_);
+	active_ = true;
+}
+
+Multithreading::~Multithreading() {
+	log_assert(active_);
+	active_ = false;
+}
+
+void Autoidx::ensure_at_least(int v) {
+	value = std::max(value, v);
+}
+
+int Autoidx::operator++(int) {
+	log_assert(!Multithreading::active());
+	return value++;
+}
 
 void memhasher_on()
 {
@@ -260,6 +283,7 @@ void yosys_shutdown()
 
 	delete yosys_design;
 	yosys_design = NULL;
+	RTLIL::OwningIdString::collect_garbage();
 
 	for (auto f : log_files)
 		if (f != stderr)
@@ -295,35 +319,35 @@ void yosys_shutdown()
 #endif
 }
 
-RTLIL::IdString new_id(std::string file, int line, std::string func)
+const std::string *create_id_prefix(std::string_view file, int line, std::string_view func)
 {
 #ifdef _WIN32
 	size_t pos = file.find_last_of("/\\");
 #else
 	size_t pos = file.find_last_of('/');
 #endif
-	if (pos != std::string::npos)
+	if (pos != std::string_view::npos)
 		file = file.substr(pos+1);
 
 	pos = func.find_last_of(':');
-	if (pos != std::string::npos)
+	if (pos != std::string_view::npos)
 		func = func.substr(pos+1);
 
-	return stringf("$auto$%s:%d:%s$%d", file, line, func, autoidx++);
+	return new std::string(stringf("$auto$%s:%d:%s$", file, line, func));
 }
 
-RTLIL::IdString new_id_suffix(std::string file, int line, std::string func, std::string suffix)
+RTLIL::IdString new_id_suffix(std::string_view file, int line, std::string_view func, std::string_view suffix)
 {
 #ifdef _WIN32
 	size_t pos = file.find_last_of("/\\");
 #else
 	size_t pos = file.find_last_of('/');
 #endif
-	if (pos != std::string::npos)
+	if (pos != std::string_view::npos)
 		file = file.substr(pos+1);
 
 	pos = func.find_last_of(':');
-	if (pos != std::string::npos)
+	if (pos != std::string_view::npos)
 		func = func.substr(pos+1);
 
 	return stringf("$auto$%s:%d:%s$%s$%d", file, line, func, suffix, autoidx++);
@@ -392,17 +416,18 @@ void rewrite_filename(std::string &filename)
 #ifdef YOSYS_ENABLE_TCL
 
 // defined in tclapi.cc
-extern int yosys_tcl_iterp_init(Tcl_Interp *interp);
+extern int yosys_tcl_interp_init(Tcl_Interp *interp);
 
 extern Tcl_Interp *yosys_get_tcl_interp()
 {
 	if (yosys_tcl_interp == NULL) {
 		yosys_tcl_interp = Tcl_CreateInterp();
-		yosys_tcl_iterp_init(yosys_tcl_interp);
+		yosys_tcl_interp_init(yosys_tcl_interp);
 	}
 	return yosys_tcl_interp;
 }
 
+// Also see SdcPass
 struct TclPass : public Pass {
 	TclPass() : Pass("tcl", "execute a TCL script file") { }
 	void help() override {
@@ -445,6 +470,7 @@ struct TclPass : public Pass {
 		Tcl_Release(interp);
 	}
 } TclPass;
+
 #endif
 
 #if defined(__linux__) || defined(__CYGWIN__)

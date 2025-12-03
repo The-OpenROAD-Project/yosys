@@ -108,22 +108,30 @@ IdString initial_id;
 
 void reset_auto_counter_id(RTLIL::IdString id, bool may_rename)
 {
-	const char *str = id.c_str();
-
-	if (*str == '$' && may_rename && !norename)
-		auto_name_map[id] = auto_name_counter++;
-
-	if (str[0] != '\\' || str[1] != '_' || str[2] == 0)
+	auto it = id.begin();
+	auto it_end = id.end();
+	if (it == it_end)
 		return;
 
-	for (int i = 2; str[i] != 0; i++) {
-		if (str[i] == '_' && str[i+1] == 0)
-			continue;
-		if (str[i] < '0' || str[i] > '9')
+	if (*it == '$' && may_rename && !norename)
+		auto_name_map[id] = auto_name_counter++;
+
+	if (*it != '\\' || (it + 1) == it_end || *(it + 1) != '_' || (it + 2) == it_end)
+		return;
+
+	std::string s;
+	it += 2;
+	while (it != it_end) {
+		char ch = *it;
+		if (ch == '_' && (it + 1) == it_end)
+			break;
+		if (ch < '0' || ch > '9')
 			return;
+		s.push_back(ch);
+		++it;
 	}
 
-	int num = atoi(str+2);
+	int num = atoi(s.c_str());
 	if (num >= auto_name_offset)
 		auto_name_offset = num + 1;
 }
