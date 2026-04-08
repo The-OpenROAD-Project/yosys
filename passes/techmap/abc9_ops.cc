@@ -21,7 +21,7 @@
 #include "kernel/register.h"
 #include "kernel/sigtools.h"
 #include "kernel/utils.h"
-#include "kernel/celltypes.h"
+#include "kernel/newcelltypes.h"
 #include "kernel/timinginfo.h"
 #include <optional>
 
@@ -1620,7 +1620,6 @@ clone_lut:
 		}
 	}
 
-	//log("ABC RESULTS:        internal signals: %8d\n", int(signal_list.size()) - in_wires - out_wires);
 	log("ABC RESULTS:           input signals: %8d\n", in_wires);
 	log("ABC RESULTS:          output signals: %8d\n", out_wires);
 

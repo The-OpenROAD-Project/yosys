@@ -23,7 +23,7 @@
 //  - zero-width operands
 
 #include "kernel/register.h"
-#include "kernel/celltypes.h"
+#include "kernel/newcelltypes.h"
 #include "kernel/rtlil.h"
 
 USING_YOSYS_NAMESPACE
@@ -45,8 +45,22 @@ PRIVATE_NAMESPACE_BEGIN
 // TODO
 //#define ARITH_OPS ID($add), ID($sub), ID($neg)
 
-#define KNOWN_OPS BITWISE_OPS, REDUCE_OPS, LOGIC_OPS, GATE_OPS, ID($pos), CMP_OPS, \
-				  ID($pmux), ID($bmux) /*, ARITH_OPS*/
+static constexpr auto known_ops = []() constexpr {
+	StaticCellTypes::Categories::Category c{};
+	for (auto id : {BITWISE_OPS})
+		c.set_id(id);
+	for (auto id : {REDUCE_OPS})
+		c.set_id(id);
+	for (auto id : {LOGIC_OPS})
+		c.set_id(id);
+	for (auto id : {GATE_OPS})
+		c.set_id(id);
+	for (auto id : {CMP_OPS})
+		c.set_id(id);
+	for (auto id : {ID($pos), ID($pmux), ID($bmux)})
+		c.set_id(id);
+	return c;
+}();
 
 template<typename Writer, typename Lit, Lit CFALSE, Lit CTRUE>
 struct Index {
@@ -92,7 +106,7 @@ struct Index {
 		int pos = index_wires(info, m);
 
 		for (auto cell : m->cells()) {
-			if (cell->type.in(KNOWN_OPS) || cell->type.in(ID($scopeinfo), ID($specify2), ID($specify3), ID($input_port)))
+			if (known_ops(cell->type) || cell->type.in(ID($scopeinfo), ID($specify2), ID($specify3), ID($input_port)))
 				continue;
 
 			Module *submodule = m->design->module(cell->type);
@@ -104,7 +118,7 @@ struct Index {
 				pos += index_module(submodule);
 			} else {
 				if (allow_blackboxes) {
-					info.found_blackboxes.insert(cell);	
+					info.found_blackboxes.insert(cell);
 				} else {
 					// Even if we don't allow blackboxes these might still be
 					// present outside of any traversed input cones, so we
@@ -163,6 +177,8 @@ struct Index {
 		if (!strashing) {
 			return (static_cast<Writer*>(this))->emit_gate(a, b);
 		} else {
+			// AigMaker::node2index
+
 			if (a < b) std::swap(a, b);
 			auto pair = std::make_pair(a, b);
 
@@ -183,7 +199,9 @@ struct Index {
 
 	Lit OR(Lit a, Lit b)
 	{
-		return NOT(AND(NOT(a), NOT(b)));
+		Lit not_a = NOT(a);
+		Lit not_b = NOT(b);
+		return NOT(AND(not_a, not_b));
 	}
 
 	Lit MUX(Lit a, Lit b, Lit s)
@@ -197,17 +215,24 @@ struct Index {
 				return b;
 		}
 
-		return OR(AND(a, NOT(s)), AND(b, s));
+		Lit not_s = NOT(s);
+		Lit a_active = AND(a, not_s);
+		Lit b_active = AND(b, s);
+		return OR(a_active, b_active);
 	}
 
 	Lit XOR(Lit a, Lit b)
 	{
-		return OR(AND(a, NOT(b)), AND(NOT(a), b));
+		Lit not_a = NOT(a);
+		Lit not_b = NOT(b);
+		Lit a_and_not_b = AND(a, not_b);
+		Lit not_a_and_b = AND(not_a, b);
+		return OR(a_and_not_b, not_a_and_b);
 	}
 
 	Lit XNOR(Lit a, Lit b)
 	{
-		return NOT(OR(AND(a, NOT(b)), AND(NOT(a), b)));
+		return NOT(XOR(a, b));
 	}
 
 	Lit CARRY(Lit a, Lit b, Lit c)
@@ -219,7 +244,10 @@ struct Index {
 				return AND(a, b);
 			}
 		}
-		return OR(AND(a, b), AND(c, OR(a, b)));
+		Lit a_or_b = OR(a, b);
+		Lit a_or_b_and_c = AND(c, a_or_b);
+		Lit a_and_b = AND(a, b);
+		return OR(a_and_b, a_or_b_and_c);
 	}
 
 	Lit REDUCE(std::vector<Lit> lits, bool op_xor=false)
@@ -269,7 +297,7 @@ struct Index {
 			} else if (cell->type.in(ID($lt), ID($le), ID($gt), ID($ge))) {
 				if (cell->type.in(ID($gt), ID($ge)))
 					std::swap(aport, bport);
-				int carry = cell->type.in(ID($le), ID($ge)) ? CFALSE : CTRUE; 
+				int carry = cell->type.in(ID($le), ID($ge)) ? CFALSE : CTRUE;
 				Lit a = Writer::EMPTY_LIT;
 				Lit b = Writer::EMPTY_LIT;
 				// TODO: this might not be the most economic structure; revisit at a later date
@@ -367,7 +395,7 @@ struct Index {
 				} else if (cell->type.in(ID($xor), ID($_XOR_))) {
 					return XOR(a, b);
 				} else if (cell->type.in(ID($xnor), ID($_XNOR_))) {
-					return NOT(XOR(a, b));
+					return XNOR(a, b);
 				} else if (cell->type.in(ID($_ANDNOT_))) {
 					return AND(a, NOT(b));
 				} else if (cell->type.in(ID($_ORNOT_))) {
@@ -387,7 +415,9 @@ struct Index {
 					if (oport == ID::Y) {
 						return XOR(ab, c);
 					} else /* oport == ID::X */ {
-						return OR(AND(a, b), AND(c, ab));
+						Lit a_and_b = AND(a, b);
+						Lit c_and_ab = AND(c, ab);
+						return OR(a_and_b, c_and_ab);
 					}
 				} else if (cell->type.in(ID($_AOI3_), ID($_OAI3_), ID($_AOI4_), ID($_OAI4_))) {
 					Lit c, d;
@@ -398,10 +428,15 @@ struct Index {
 					else
 						d = cell->type == ID($_AOI3_) ? CTRUE : CFALSE;
 
-					if (/* aoi */ cell->type.in(ID($_AOI3_), ID($_AOI4_)))
-						return NOT(OR(AND(a, b), AND(c, d)));
-					else
-						return NOT(AND(OR(a, b), OR(c, d)));
+					if (/* aoi */ cell->type.in(ID($_AOI3_), ID($_AOI4_))) {
+						Lit a_and_b = AND(a, b);
+						Lit c_and_d = AND(c, d);
+						return NOT(OR(a_and_b, c_and_d));
+					} else {
+						Lit a_or_b = OR(a, b);
+						Lit c_or_d = OR(c, d);
+						return NOT(AND(a_or_b, c_or_d));
+					}
 				} else {
 					log_abort();
 				}
@@ -422,7 +457,11 @@ struct Index {
 				sels.push_back(NOT(s));
 			}
 
-			return OR(AND(REDUCE(sels), a), NOT(REDUCE(bar)));
+			Lit reduce_sels = REDUCE(sels);
+			Lit reduce_sels_and_a = AND(reduce_sels, a);
+			Lit reduce_bar = NOT(REDUCE(bar));
+
+			return OR(reduce_sels_and_a, reduce_bar);
 		} else if (cell->type == ID($bmux)) {
 			SigSpec aport = cell->getPort(ID::A);
 			SigSpec sport = cell->getPort(ID::S);
@@ -579,7 +618,7 @@ struct Index {
 			// an output of a cell
 			Cell *driver = bit.wire->driverCell();
 
-			if (driver->type.in(KNOWN_OPS)) {
+			if (known_ops(driver->type)) {
 				ret = impl_op(cursor, driver, bit.wire->driverPort(), bit.offset);
 			} else {
 				Module *def = cursor.enter(*this, driver);
@@ -730,15 +769,15 @@ struct AigerWriter : Index<AigerWriter, unsigned int, 0, 1> {
 		// populate inputs
 		std::vector<SigBit> inputs;
 		for (auto id : top->ports) {
-		Wire *w = top->wire(id);
-		log_assert(w);
-		if (w->port_input && !w->port_output)
-		for (int i = 0; i < w->width; i++) {
-			pi_literal(SigBit(w, i)) = lit_counter;
-			inputs.push_back(SigBit(w, i));
-			lit_counter += 2;
-			ninputs++;
-		}
+			Wire *w = top->wire(id);
+			log_assert(w);
+			if (w->port_input && !w->port_output)
+				for (int i = 0; i < w->width; i++) {
+					pi_literal(SigBit(w, i)) = lit_counter;
+					inputs.push_back(SigBit(w, i));
+					lit_counter += 2;
+					ninputs++;
+				}
 		}
 
 		this->f = f;
@@ -746,27 +785,27 @@ struct AigerWriter : Index<AigerWriter, unsigned int, 0, 1> {
 		write_header();
 		// insert padding where output literals will go (once known)
 		for (auto id : top->ports) {
-		Wire *w = top->wire(id);
-		log_assert(w);
-		if (w->port_output) {
-			for (auto bit : SigSpec(w)) {
-				(void) bit;
-				char buf[16];
-				snprintf(buf, sizeof(buf) - 1, "%08d\n", 0);
-				f->write(buf, strlen(buf));
-				noutputs++;
+			Wire *w = top->wire(id);
+			log_assert(w);
+			if (w->port_output) {
+				for (auto bit : SigSpec(w)) {
+					(void) bit;
+					char buf[16];
+					snprintf(buf, sizeof(buf) - 1, "%08d\n", 0);
+					f->write(buf, strlen(buf));
+					noutputs++;
+				}
 			}
-		}
 		}
 		auto data_start = f->tellp();
 
 		// now the guts
 		std::vector<std::pair<SigBit, int>> outputs;
 		for (auto w : top->wires())
-		if (w->port_output) {
-			for (auto bit : SigSpec(w))
-				outputs.push_back({bit, eval_po(bit)});
-		}
+			if (w->port_output) {
+				for (auto bit : SigSpec(w))
+					outputs.push_back({bit, eval_po(bit)});
+			}
 		auto data_end = f->tellp();
 
 		// revisit header and the list of outputs
@@ -871,33 +910,34 @@ struct XAigerAnalysis : Index<XAigerAnalysis, int, 0, 0> {
 			Wire *w = top->wire(id);
 			log_assert(w);
 			if (w->port_input && !w->port_output)
-			for (int i = 0; i < w->width; i++)
-				pi_literal(SigBit(w, i)) = 0;
+				for (int i = 0; i < w->width; i++)
+					pi_literal(SigBit(w, i)) = 0;
 		}
 
 		HierCursor cursor;
 		for (auto box : top_minfo->found_blackboxes) {
 			Module *def = design->module(box->type);
 			if (!(def && def->has_attribute(ID::abc9_box_id)))
-			for (auto &conn : box->connections_)
-			if (box->port_dir(conn.first) != RTLIL::PD_INPUT)
-			for (auto bit : conn.second)
-				pi_literal(bit, &cursor) = 0;
+				for (auto &conn : box->connections_)
+					if (box->port_dir(conn.first) != RTLIL::PD_INPUT)
+						for (auto bit : conn.second)
+							pi_literal(bit, &cursor) = 0;
 		}
 
-		for (auto w : top->wires())
-		if (w->port_output) {
-			for (auto bit : SigSpec(w))
-				(void) eval_po(bit);
+		for (auto w : top->wires()) {
+			if (w->port_output) {
+				for (auto bit : SigSpec(w))
+					(void) eval_po(bit);
+			}
 		}
 
 		for (auto box : top_minfo->found_blackboxes) {
 			Module *def = design->module(box->type);
 			if (!(def && def->has_attribute(ID::abc9_box_id)))
-			for (auto &conn : box->connections_)
-			if (box->port_dir(conn.first) == RTLIL::PD_INPUT)
-			for (auto bit : conn.second)
-				(void) eval_po(bit);
+				for (auto &conn : box->connections_)
+					if (box->port_dir(conn.first) == RTLIL::PD_INPUT)
+						for (auto bit : conn.second)
+							(void) eval_po(bit);
 		}
 	}
 };
@@ -916,15 +956,15 @@ struct XAigerWriter : AigerWriter {
 	std::vector<HierBit> pos;
 	std::vector<HierBit> pis;
 
-    // * The aiger output port sequence is COs (inputs to modeled boxes),
-    //   inputs to opaque boxes, then module outputs. COs going first is
-    //   required by abc.
-    // * proper_pos_counter counts ports which follow after COs
-    // * The mapping file `pseudopo` and `po` statements use indexing relative
-    //   to the first port following COs.
-    // * If a module output is directly driven by an opaque box, the emission
-    //   of the po statement in the mapping file is skipped. This is done to
-    //   aid re-integration of the mapped result.
+	// * The aiger output port sequence is COs (inputs to modeled boxes),
+	//   inputs to opaque boxes, then module outputs. COs going first is
+	//   required by abc.
+	// * proper_pos_counter counts ports which follow after COs
+	// * The mapping file `pseudopo` and `po` statements use indexing relative
+	//   to the first port following COs.
+	// * If a module output is directly driven by an opaque box, the emission
+	//   of the po statement in the mapping file is skipped. This is done to
+	//   aid re-integration of the mapped result.
 	int proper_pos_counter = 0;
 
 	pool<SigBit> driven_by_opaque_box;
@@ -1331,41 +1371,50 @@ struct Aiger2Backend : Backend {
 		log("        perform structural hashing while writing\n");
 		log("\n");
 		log("    -flatten\n");
-        log("        allow descending into submodules and write a flattened view of the design\n");
-        log("        hierarchy starting at the selected top\n");
-        log("\n");
+		log("        allow descending into submodules and write a flattened view of the design\n");
+		log("        hierarchy starting at the selected top\n");
+		log("\n");
 		log("This command is able to ingest all combinational cells except for:\n");
 		log("\n");
-		pool<IdString> supported = {KNOWN_OPS};
-		CellTypes ct;
-		ct.setup_internals_eval();
 		log("    ");
 		int col = 0;
-		for (auto pair : ct.cell_types)
-		if (!supported.count(pair.first)) {
-			if (col + pair.first.size() + 2 > 72) {
+		for (size_t i = 0; i < StaticCellTypes::builder.count; i++) {
+			auto &cell = StaticCellTypes::builder.cells[i];
+			if (!cell.features.is_evaluable)
+				continue;
+			if (cell.features.is_stdcell)
+				continue;
+			if (known_ops(cell.type))
+				continue;
+			std::string name = log_id(cell.type);
+			if (col + name.size() + 2 > 72) {
 				log("\n    ");
 				col = 0;
 			}
-			col += pair.first.size() + 2;
-			log("%s, ", log_id(pair.first));
+			col += name.size() + 2;
+			log("%s, ", name.c_str());
 		}
 		log("\n");
 		log("\n");
 		log("And all combinational gates except for:\n");
 		log("\n");
-		CellTypes ct2;
-		ct2.setup_stdcells();
 		log("    ");
 		col = 0;
-		for (auto pair : ct2.cell_types)
-		if (!supported.count(pair.first)) {
-			if (col + pair.first.size() + 2 > 72) {
+		for (size_t i = 0; i < StaticCellTypes::builder.count; i++) {
+			auto &cell = StaticCellTypes::builder.cells[i];
+			if (!cell.features.is_evaluable)
+				continue;
+			if (!cell.features.is_stdcell)
+				continue;
+			if (known_ops(cell.type))
+				continue;
+			std::string name = log_id(cell.type);
+			if (col + name.size() + 2 > 72) {
 				log("\n    ");
 				col = 0;
 			}
-			col += pair.first.size() + 2;
-			log("%s, ", log_id(pair.first));
+			col += name.size() + 2;
+			log("%s, ", name.c_str());
 		}
 		log("\n");
 	}
@@ -1423,20 +1472,20 @@ struct XAiger2Backend : Backend {
 		log("        perform structural hashing while writing\n");
 		log("\n");
 		log("    -flatten\n");
-        log("        allow descending into submodules and write a flattened view of the design\n");
-        log("        hierarchy starting at the selected top\n");
-        log("\n");
-        log("    -mapping_prep\n");
-        log("        after the file is written, prepare the module for reintegration of\n");
-        log("        a mapping in a subsequent command. all cells which are not blackboxed nor\n");
-        log("        whiteboxed are removed from the design as well as all wires which only\n");
-        log("        connect to removed cells\n");
-        log("        (conflicts with -flatten)\n");
-        log("\n");
-        log("    -map2 <file>\n");
-        log("        write a map2 file which 'read_xaiger2 -sc_mapping' can read to\n");
-        log("        reintegrate a mapping\n");
-        log("        (conflicts with -flatten)\n");
+		log("        allow descending into submodules and write a flattened view of the design\n");
+		log("        hierarchy starting at the selected top\n");
+		log("\n");
+		log("    -mapping_prep\n");
+		log("        after the file is written, prepare the module for reintegration of\n");
+		log("        a mapping in a subsequent command. all cells which are not blackboxed nor\n");
+		log("        whiteboxed are removed from the design as well as all wires which only\n");
+		log("        connect to removed cells\n");
+		log("        (conflicts with -flatten)\n");
+		log("\n");
+		log("    -map2 <file>\n");
+		log("        write a map2 file which 'read_xaiger2 -sc_mapping' can read to\n");
+		log("        reintegrate a mapping\n");
+		log("        (conflicts with -flatten)\n");
 		log("\n");
 	}
 

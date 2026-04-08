@@ -613,6 +613,7 @@ $(eval $(call add_include_file,kernel/bitpattern.h))
 $(eval $(call add_include_file,kernel/cellaigs.h))
 $(eval $(call add_include_file,kernel/celledges.h))
 $(eval $(call add_include_file,kernel/celltypes.h))
+$(eval $(call add_include_file,kernel/newcelltypes.h))
 $(eval $(call add_include_file,kernel/consteval.h))
 $(eval $(call add_include_file,kernel/constids.inc))
 $(eval $(call add_include_file,kernel/cost.h))
@@ -919,6 +920,7 @@ endif
 
 # Tests that generate .mk with tests/gen-tests-makefile.sh
 MK_TEST_DIRS =
+MK_TEST_DIRS += tests/arch/analogdevices
 MK_TEST_DIRS += tests/arch/anlogic
 MK_TEST_DIRS += tests/arch/ecp5
 MK_TEST_DIRS += tests/arch/efinix
