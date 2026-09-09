@@ -125,6 +125,7 @@ Multithreading::~Multithreading() {
 }
 
 void Autoidx::ensure_at_least(int v) {
+	log_assert(!Multithreading::active());
 	value = std::max(value, v);
 }
 
@@ -286,11 +287,7 @@ void yosys_shutdown()
 	yosys_design = NULL;
 	RTLIL::OwningIdString::collect_garbage();
 
-	for (auto f : log_files)
-		if (f != stderr)
-			fclose(f);
-	log_errfile = NULL;
-	log_files.clear();
+	logger().clear();
 
 #ifdef YOSYS_ENABLE_TCL
 	if (yosys_tcl_interp != NULL) {
@@ -537,18 +534,16 @@ std::string proc_self_dirname()
 #elif defined(_WIN32)
 std::string proc_self_dirname()
 {
-	int i = 0;
-	char longpath[MAX_PATH + 1];
-	char shortpath[MAX_PATH + 1];
-	if (!GetModuleFileNameA(0, longpath, MAX_PATH+1))
-		log_error("GetModuleFileName() failed.\n");
-	if (!GetShortPathNameA(longpath, shortpath, MAX_PATH+1))
-		log_error("GetShortPathName() failed.\n");
-	while (shortpath[i] != 0)
-		i++;
-	while (i > 0 && shortpath[i-1] != '/' && shortpath[i-1] != '\\')
-		shortpath[--i] = 0;
-	return shortpath;
+	std::wstring wbinpath(4096, L'\0');
+	if (!GetModuleFileNameW(0, &wbinpath[0], wbinpath.size()))
+	fprintf(stderr, "GetModuleFileNameW() failed.\n");
+	wbinpath.resize(wbinpath.rfind(L'\\') + 1); // remove filename
+	std::string ubinpath;
+	ubinpath.resize(WideCharToMultiByte(CP_UTF8, 0, wbinpath.data(), wbinpath.size(), NULL, 0, NULL, NULL));
+	if (WideCharToMultiByte(CP_UTF8, 0, wbinpath.data(), wbinpath.size(), &ubinpath[0], ubinpath.size(), NULL, NULL) == 0)
+	fprintf(stderr, "WideCharToMultiByte() failed.\n");
+	return ubinpath;
+
 }
 #elif defined(__wasm)
 std::string proc_self_dirname()
@@ -779,7 +774,7 @@ bool run_frontend(std::string filename, std::string command, RTLIL::Design *desi
 			from_to_active = run_from.empty();
 		}
 
-		log("\n-- Executing script file `%s' --\n", filename);
+		log_comment("\n-- Executing script file `%s' --\n", filename);
 
 		FILE *f = stdin;
 
@@ -849,9 +844,9 @@ bool run_frontend(std::string filename, std::string command, RTLIL::Design *desi
 	}
 
 	if (filename == "-") {
-		log("\n-- Parsing stdin using frontend `%s' --\n", command);
+		log_comment("\n-- Parsing stdin using frontend `%s' --\n", command);
 	} else {
-		log("\n-- Parsing `%s' using frontend `%s' --\n", filename, command);
+		log_comment("\n-- Parsing `%s' using frontend `%s' --\n", filename, command);
 	}
 
 	if (command[0] == ' ') {
@@ -870,7 +865,7 @@ void run_pass(std::string command, RTLIL::Design *design)
 	if (design == nullptr)
 		design = yosys_design;
 
-	log("\n-- Running command `%s' --\n", command);
+	log_comment("\n-- Running command `%s' --\n", command);
 
 	Pass::call(design, command);
 }
@@ -909,9 +904,9 @@ void run_backend(std::string filename, std::string command, RTLIL::Design *desig
 		filename = "-";
 
 	if (filename == "-") {
-		log("\n-- Writing to stdout using backend `%s' --\n", command);
+		log_comment("\n-- Writing to stdout using backend `%s' --\n", command);
 	} else {
-		log("\n-- Writing to `%s' using backend `%s' --\n", filename, command);
+		log_comment("\n-- Writing to `%s' using backend `%s' --\n", filename, command);
 	}
 
 	Backend::backend_call(design, NULL, filename, command);
@@ -1001,7 +996,7 @@ void shell(RTLIL::Design *design)
 	static int recursion_counter = 0;
 
 	recursion_counter++;
-	log_cmd_error_throw = true;
+	auto guard = logger().error_throw_scope();
 
 #if defined(YOSYS_ENABLE_READLINE) || defined(YOSYS_ENABLE_EDITLINE)
 	rl_readline_name = (char*)"yosys";
@@ -1061,7 +1056,6 @@ void shell(RTLIL::Design *design)
 		free(command);
 #endif
 	recursion_counter--;
-	log_cmd_error_throw = false;
 }
 
 struct ShellPass : public Pass {

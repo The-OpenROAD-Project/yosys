@@ -32,7 +32,6 @@
 #define ABC_COMMAND_LIB "strash; &get -n; &fraig -x; &put; scorr; dc2; dretime; strash; &get -n; &dch -f; &nf {D}; &put"
 #define ABC_COMMAND_CTR "strash; &get -n; &fraig -x; &put; scorr; dc2; dretime; strash; &get -n; &dch -f; &nf {D}; &put; buffer; upsize {D}; dnsize {D}; stime -p"
 #define ABC_COMMAND_LUT "strash; &get -n; &fraig -x; &put; scorr; dc2; dretime; strash; dch -f; if; mfs2"
-#define ABC_COMMAND_SOP "strash; &get -n; &fraig -x; &put; scorr; dc2; dretime; strash; dch -f; cover {I} {P}"
 #define ABC_COMMAND_DFL "strash; &get -n; &fraig -x; &put; scorr; dc2; dretime; strash; &get -n; &dch -f; &nf {D}; &put"
 
 #include "kernel/register.h"
@@ -128,13 +127,10 @@ struct AbcConfig
 	std::string abc_liberty_args;
 	vector<int> lut_costs;
 	std::string delay_target;
-	std::string sop_inputs;
-	std::string sop_products;
 	std::vector<std::string> dont_use_cells;
 	bool cleanup = true;
 	bool keepff = false;
 	bool show_tempdir = false;
-	bool sop_mode = false;
 	bool abc_dress = false;
 	bool map_mux4 = false;
 	bool map_mux8 = false;
@@ -301,9 +297,11 @@ struct AbcModuleState {
 	RunAbcState run_abc;
 
 	int state_index;
-	int map_autoidx = 0;
+	int map_autoidx;
 	std::vector<RTLIL::SigBit> signal_bits;
 	dict<RTLIL::SigBit, int> signal_map;
+	// Deletions are deferred until extract for multi-threaded determinism
+	std::vector<RTLIL::Cell*> cells_to_remove;
 	FfInitVals &initvals;
 	bool had_init = false;
 
@@ -315,19 +313,19 @@ struct AbcModuleState {
 
 	int undef_bits_lost = 0;
 
-	AbcModuleState(const AbcConfig &config, FfInitVals &initvals, int state_index)
-		: run_abc(config), state_index(state_index), initvals(initvals) {}
+	AbcModuleState(const AbcConfig &config, FfInitVals &initvals, int state_index, int map_autoidx)
+		: run_abc(config), state_index(state_index), map_autoidx(map_autoidx), initvals(initvals) {}
 	AbcModuleState(AbcModuleState&&) = delete;
 
 	int map_signal(const AbcSigMap &assign_map, RTLIL::SigBit bit, gate_type_t gate_type = G(NONE), int in1 = -1, int in2 = -1, int in3 = -1, int in4 = -1);
 	void mark_port(const AbcSigMap &assign_map, RTLIL::SigSpec sig);
-	bool extract_cell(const AbcSigMap &assign_map, RTLIL::Module *module, RTLIL::Cell *cell, bool keepff);
+	bool prepare_cell(const AbcSigMap &assign_map, RTLIL::Cell *cell, bool keepff);
 	std::string remap_name(RTLIL::IdString abc_name, RTLIL::Wire **orig_wire = nullptr);
 	void dump_loop_graph(FILE *f, int &nr, dict<int, pool<int>> &edges, pool<int> &workpool, std::vector<int> &in_counts);
 	void handle_loops(AbcSigMap &assign_map, RTLIL::Module *module);
 	void prepare_module(RTLIL::Design *design, RTLIL::Module *module, AbcSigMap &assign_map, const std::vector<RTLIL::Cell*> &cells,
 		bool dff_mode, std::string clk_str);
-	void extract(AbcSigMap &assign_map, RTLIL::Design *design, RTLIL::Module *module);
+	void extract(RTLIL::Design *design, RTLIL::Module *module);
 	void finish();
 };
 
@@ -379,7 +377,7 @@ void AbcModuleState::mark_port(const AbcSigMap &assign_map, RTLIL::SigSpec sig)
 			run_abc.signal_list[signal_map[bit]].is_port = true;
 }
 
-bool AbcModuleState::extract_cell(const AbcSigMap &assign_map, RTLIL::Module *module, RTLIL::Cell *cell, bool keepff)
+bool AbcModuleState::prepare_cell(const AbcSigMap &assign_map, RTLIL::Cell *cell, bool keepff)
 {
 	if (cell->is_builtin_ff()) {
 		FfData ff(&initvals, cell);
@@ -463,7 +461,8 @@ bool AbcModuleState::extract_cell(const AbcSigMap &assign_map, RTLIL::Module *mo
 
 		map_signal(assign_map, ff.sig_q, type, map_signal(assign_map, ff.sig_d));
 
-		ff.remove();
+		ff.remove_init();
+		cells_to_remove.push_back(cell);
 		return true;
 	}
 
@@ -477,7 +476,7 @@ bool AbcModuleState::extract_cell(const AbcSigMap &assign_map, RTLIL::Module *mo
 
 		map_signal(assign_map, sig_y, cell->type == ID($_BUF_) ? G(BUF) : G(NOT), map_signal(assign_map, sig_a));
 
-		module->remove(cell);
+		cells_to_remove.push_back(cell);
 		return true;
 	}
 
@@ -513,7 +512,7 @@ bool AbcModuleState::extract_cell(const AbcSigMap &assign_map, RTLIL::Module *mo
 		else
 			log_abort();
 
-		module->remove(cell);
+		cells_to_remove.push_back(cell);
 		return true;
 	}
 
@@ -535,7 +534,7 @@ bool AbcModuleState::extract_cell(const AbcSigMap &assign_map, RTLIL::Module *mo
 
 		map_signal(assign_map, sig_y, cell->type == ID($_MUX_) ? G(MUX) : G(NMUX), mapped_a, mapped_b, mapped_s);
 
-		module->remove(cell);
+		cells_to_remove.push_back(cell);
 		return true;
 	}
 
@@ -557,7 +556,7 @@ bool AbcModuleState::extract_cell(const AbcSigMap &assign_map, RTLIL::Module *mo
 
 		map_signal(assign_map, sig_y, cell->type == ID($_AOI3_) ? G(AOI3) : G(OAI3), mapped_a, mapped_b, mapped_c);
 
-		module->remove(cell);
+		cells_to_remove.push_back(cell);
 		return true;
 	}
 
@@ -582,7 +581,7 @@ bool AbcModuleState::extract_cell(const AbcSigMap &assign_map, RTLIL::Module *mo
 
 		map_signal(assign_map, sig_y, cell->type == ID($_AOI4_) ? G(AOI4) : G(OAI4), mapped_a, mapped_b, mapped_c, mapped_d);
 
-		module->remove(cell);
+		cells_to_remove.push_back(cell);
 		return true;
 	}
 
@@ -657,12 +656,6 @@ void AbcModuleState::dump_loop_graph(FILE *f, int &nr, dict<int, pool<int>> &edg
 	fprintf(f, "}\n");
 }
 
-void connect(AbcSigMap &assign_map, RTLIL::Module *module, const RTLIL::SigSig &conn)
-{
-	module->connect(conn);
-	assign_map.add(conn.first, conn.second);
-}
-
 void AbcModuleState::handle_loops(AbcSigMap &assign_map, RTLIL::Module *module)
 {
 	// http://en.wikipedia.org/wiki/Topological_sorting
@@ -674,6 +667,8 @@ void AbcModuleState::handle_loops(AbcSigMap &assign_map, RTLIL::Module *module)
 
 	FILE *dot_f = nullptr;
 	int dot_nr = 0;
+	// Avoids mutating autoidx for multi-threaded determinism
+	int loop_count = 0;
 
 	// uncomment for troubleshooting the loop detection code
 	// dot_f = fopen("test.dot", "w");
@@ -753,9 +748,7 @@ void AbcModuleState::handle_loops(AbcSigMap &assign_map, RTLIL::Module *module)
 
 			log_assert(signal_bits[id1].wire != nullptr);
 
-			std::stringstream sstr;
-			sstr << "$abcloop$" << (autoidx++);
-			RTLIL::Wire *wire = module->addWire(sstr.str());
+			RTLIL::Wire *wire = module->addWire(stringf("$abcloop$%d$%d", map_autoidx, loop_count++));
 
 			bool first_line = true;
 			for (int id2 : edges[id1]) {
@@ -787,7 +780,9 @@ void AbcModuleState::handle_loops(AbcSigMap &assign_map, RTLIL::Module *module)
 			}
 			edges[id1].swap(edges[id3]);
 
-			connect(assign_map, module, RTLIL::SigSig(signal_bits[id3], signal_bits[id1]));
+			auto conn = SigSig(signal_bits[id3], signal_bits[id1]);
+			module->connect(conn);
+			assign_map.add(conn.first, conn.second);
 			dump_loop_graph(dot_f, dot_nr, edges, workpool, in_edges_count);
 		}
 	}
@@ -934,8 +929,6 @@ struct abc_output_filter
 void AbcModuleState::prepare_module(RTLIL::Design *design, RTLIL::Module *module, AbcSigMap &assign_map, const std::vector<RTLIL::Cell*> &cells,
 	bool dff_mode, std::string clk_str)
 {
-	map_autoidx = autoidx++;
-
 	if (clk_str != "$")
 	{
 		clk_polarity = true;
@@ -1033,6 +1026,8 @@ void AbcModuleState::prepare_module(RTLIL::Design *design, RTLIL::Module *module
 		} else if(!config.liberty_files.empty()) {
 			if (!config.abc_liberty_args.empty()) {
 				log("ABC: abc_liberty_args provided, using liberty format\n");
+			} else if (!scl_cache_enabled) {
+				log("ABC: SCL cache disabled, using liberty format\n");
 			} else {
 				log_warning("ABC: Merged scl conversion failed, using liberty format\n");
 			}
@@ -1075,8 +1070,6 @@ void AbcModuleState::prepare_module(RTLIL::Design *design, RTLIL::Module *module
 			run_abc.abc_script += "; lutpack -S 1";
 	} else if (!config.liberty_files.empty() || !config.genlib_files.empty())
 		run_abc.abc_script += config.constr_file.empty() ? ABC_COMMAND_LIB : ABC_COMMAND_CTR;
-	else if (config.sop_mode)
-		run_abc.abc_script += ABC_COMMAND_SOP;
 	else
 		run_abc.abc_script += ABC_COMMAND_DFL;
 
@@ -1086,12 +1079,6 @@ void AbcModuleState::prepare_module(RTLIL::Design *design, RTLIL::Module *module
 
 	for (size_t pos = run_abc.abc_script.find("{D}"); pos != std::string::npos; pos = run_abc.abc_script.find("{D}", pos))
 		run_abc.abc_script = run_abc.abc_script.substr(0, pos) + config.delay_target + run_abc.abc_script.substr(pos+3);
-
-	for (size_t pos = run_abc.abc_script.find("{I}"); pos != std::string::npos; pos = run_abc.abc_script.find("{I}", pos))
-		run_abc.abc_script = run_abc.abc_script.substr(0, pos) + config.sop_inputs + run_abc.abc_script.substr(pos+3);
-
-	for (size_t pos = run_abc.abc_script.find("{P}"); pos != std::string::npos; pos = run_abc.abc_script.find("{P}", pos))
-		run_abc.abc_script = run_abc.abc_script.substr(0, pos) + config.sop_products + run_abc.abc_script.substr(pos+3);
 
 	if (config.abc_dress)
 		run_abc.abc_script += stringf("; dress \"%s/input.blif\"", run_abc.per_run_tempdir_name);
@@ -1134,7 +1121,7 @@ void AbcModuleState::prepare_module(RTLIL::Design *design, RTLIL::Module *module
 	had_init = false;
 	std::vector<RTLIL::Cell *> kept_cells;
 	for (auto c : cells)
-		if (!extract_cell(assign_map, module, c, config.keepff))
+		if (!prepare_cell(assign_map, c, config.keepff))
 			kept_cells.push_back(c);
 
 	if (undef_bits_lost)
@@ -1142,7 +1129,7 @@ void AbcModuleState::prepare_module(RTLIL::Design *design, RTLIL::Module *module
 
 	// Wires with port_id > 0, ID::keep, and connections to cells outside our cell set have already
 	// been accounted for via AbcSigVal::is_port. Now we just need to account for
-	// connections to cells inside our cell set that weren't removed by extract_cell().
+	// connections to cells inside our cell set that weren't removed by prepare_cell().
 	for (auto cell : kept_cells)
 		for (auto &port_it : cell->connections())
 			mark_port(assign_map, port_it.second);
@@ -1192,7 +1179,10 @@ bool read_until_abc_done(abc_output_filter &filt, int fd, DeferredLogs &logs) {
 	bool seen_source_cmd = false;
 	bool seen_yosys_abc_done = false;
 	while (true) {
-		int ret = read(fd, buf, sizeof(buf) - 1);
+		int ret;
+		do {
+			ret = read(fd, buf, sizeof(buf) - 1);
+		} while (ret == -1 && errno == EINTR);
 		if (ret < 0) {
 			logs.log_error("Failed to read from ABC, errno=%d\n", errno);
 			return false;
@@ -1513,8 +1503,12 @@ void emit_global_input_files(const AbcConfig &config)
 	}
 }
 
-void AbcModuleState::extract(AbcSigMap &assign_map, RTLIL::Design *design, RTLIL::Module *module)
+void AbcModuleState::extract(RTLIL::Design *design, RTLIL::Module *module)
 {
+	for (RTLIL::Cell *cell : cells_to_remove)
+		module->remove(cell);
+	cells_to_remove.clear();
+
 	log_push();
 	log_header(design, "Executed ABC.\n");
 	run_abc.logs.flush();
@@ -1531,7 +1525,7 @@ void AbcModuleState::extract(AbcSigMap &assign_map, RTLIL::Design *design, RTLIL
 
 	bool builtin_lib = run_abc.config.liberty_files.empty() && run_abc.config.genlib_files.empty();
 	RTLIL::Design *mapped_design = new RTLIL::Design;
-	parse_blif(mapped_design, ifs, builtin_lib ? ID(DFF) : ID(_dff_), false, run_abc.config.sop_mode);
+	parse_blif(mapped_design, ifs, builtin_lib ? ID(DFF) : ID(_dff_));
 
 	ifs.close();
 
@@ -1563,7 +1557,7 @@ void AbcModuleState::extract(AbcSigMap &assign_map, RTLIL::Design *design, RTLIL
 				RTLIL::IdString name_y = remap_name(c->getPort(ID::Y).as_wire()->name);
 				conn.first = module->wire(name_y);
 				conn.second = RTLIL::SigSpec(c->type == ID(ZERO) ? 0 : 1, 1);
-				connect(assign_map, module, conn);
+				module->connect(conn);
 				continue;
 			}
 			if (c->type == ID(BUF)) {
@@ -1572,7 +1566,7 @@ void AbcModuleState::extract(AbcSigMap &assign_map, RTLIL::Design *design, RTLIL
 				RTLIL::IdString name_a = remap_name(c->getPort(ID::A).as_wire()->name);
 				conn.first = module->wire(name_y);
 				conn.second = module->wire(name_a);
-				connect(assign_map, module, conn);
+				module->connect(conn);
 				continue;
 			}
 			if (c->type == ID(NOT)) {
@@ -1704,7 +1698,7 @@ void AbcModuleState::extract(AbcSigMap &assign_map, RTLIL::Design *design, RTLIL
 			RTLIL::SigSig conn;
 			conn.first = module->wire(remap_name(c->connections().begin()->second.as_wire()->name));
 			conn.second = RTLIL::SigSpec(c->type == ID(_const0_) ? 0 : 1, 1);
-			connect(assign_map, module, conn);
+			module->connect(conn);
 			continue;
 		}
 
@@ -1749,7 +1743,7 @@ void AbcModuleState::extract(AbcSigMap &assign_map, RTLIL::Design *design, RTLIL
 		if (c->type == ID($lut) && GetSize(c->getPort(ID::A)) == 1 && c->getParam(ID::LUT).as_int() == 2) {
 			SigSpec my_a = module->wire(remap_name(c->getPort(ID::A).as_wire()->name));
 			SigSpec my_y = module->wire(remap_name(c->getPort(ID::Y).as_wire()->name));
-			connect(assign_map, module, RTLIL::SigSig(my_a, my_y));
+			module->connect(RTLIL::SigSig(my_a, my_y));
 			continue;
 		}
 
@@ -1774,7 +1768,7 @@ void AbcModuleState::extract(AbcSigMap &assign_map, RTLIL::Design *design, RTLIL
 			conn.first = module->wire(remap_name(conn.first.as_wire()->name));
 		if (!conn.second.is_fully_const())
 			conn.second = module->wire(remap_name(conn.second.as_wire()->name));
-		connect(assign_map, module, conn);
+		module->connect(conn);
 	}
 
 	cell_stats.sort();
@@ -1795,7 +1789,7 @@ void AbcModuleState::extract(AbcSigMap &assign_map, RTLIL::Design *design, RTLIL
 				conn.second = signal_bits[si.id];
 				in_wires++;
 			}
-			connect(assign_map, module, conn);
+			module->connect(conn);
 		}
 	log("ABC RESULTS:        internal signals: %8d\n", int(run_abc.signal_list.size()) - in_wires - out_wires);
 	log("ABC RESULTS:           input signals: %8d\n", in_wires);
@@ -1897,9 +1891,6 @@ struct AbcPass : public Pass {
 		log("        for -lut/-luts (different LUT sizes):\n");
 		log("%s\n", fold_abc_cmd(ABC_COMMAND_LUT));
 		log("\n");
-		log("        for -sop:\n");
-		log("%s\n", fold_abc_cmd(ABC_COMMAND_SOP));
-		log("\n");
 		log("        otherwise:\n");
 		log("%s\n", fold_abc_cmd(ABC_COMMAND_DFL));
 		log("\n");
@@ -1935,14 +1926,6 @@ struct AbcPass : public Pass {
 		log("        this also replaces 'dretime' with 'dretime; retime -o {D}' in the\n");
 		log("        default scripts above.\n");
 		log("\n");
-		log("    -I <num>\n");
-		log("        maximum number of SOP inputs.\n");
-		log("        (replaces {I} in the default scripts above)\n");
-		log("\n");
-		log("    -P <num>\n");
-		log("        maximum number of SOP products.\n");
-		log("        (replaces {P} in the default scripts above)\n");
-		log("\n");
 		log("    -lut <width>\n");
 		log("        generate netlist using luts of (max) the specified width.\n");
 		log("\n");
@@ -1955,9 +1938,6 @@ struct AbcPass : public Pass {
 		log("    -luts <cost1>,<cost2>,<cost3>,<sizeN>:<cost4-N>,..\n");
 		log("        generate netlist using luts. Use the specified costs for luts with 1,\n");
 		log("        2, 3, .. inputs.\n");
-		log("\n");
-		log("    -sop\n");
-		log("        map to sum-of-product cells and inverters\n");
 		log("\n");
 		// log("    -mux4, -mux8, -mux16\n");
 		// log("        try to extract 4-input, 8-input, and/or 16-input muxes\n");
@@ -2051,15 +2031,8 @@ struct AbcPass : public Pass {
 		if (design->scratchpad.count("abc.D")) {
 			config.delay_target = "-D " + design->scratchpad_get_string("abc.D");
 		}
-		if (design->scratchpad.count("abc.I")) {
-			config.sop_inputs = "-I " + design->scratchpad_get_string("abc.I");
-		}
-		if (design->scratchpad.count("abc.P")) {
-			config.sop_products = "-P " + design->scratchpad_get_string("abc.P");
-		}
 		lut_arg = design->scratchpad_get_string("abc.lut", lut_arg);
 		luts_arg = design->scratchpad_get_string("abc.luts", luts_arg);
-		config.sop_mode = design->scratchpad_get_bool("abc.sop", false);
 		config.map_mux4 = design->scratchpad_get_bool("abc.mux4", false);
 		config.map_mux8 = design->scratchpad_get_bool("abc.mux8", false);
 		config.map_mux16 = design->scratchpad_get_bool("abc.mux16", false);
@@ -2130,24 +2103,12 @@ struct AbcPass : public Pass {
 				config.delay_target = "-D " + args[++argidx];
 				continue;
 			}
-			if (arg == "-I" && argidx+1 < args.size()) {
-				config.sop_inputs = "-I " + args[++argidx];
-				continue;
-			}
-			if (arg == "-P" && argidx+1 < args.size()) {
-				config.sop_products = "-P " + args[++argidx];
-				continue;
-			}
 			if (arg == "-lut" && argidx+1 < args.size()) {
 				lut_arg = args[++argidx];
 				continue;
 			}
 			if (arg == "-luts" && argidx+1 < args.size()) {
 				luts_arg = args[++argidx];
-				continue;
-			}
-			if (arg == "-sop") {
-				config.sop_mode = true;
 				continue;
 			}
 			if (arg == "-mux4") {
@@ -2437,11 +2398,11 @@ struct AbcPass : public Pass {
 				std::vector<RTLIL::Cell*> cells = mod->selected_cells();
 				assign_cell_connection_ports(mod, {&cells}, assign_map);
 
-				AbcModuleState state(config, initvals, 0);
+				AbcModuleState state(config, initvals, 0, autoidx++);
 				state.prepare_module(design, mod, assign_map, cells, dff_mode, clk_str);
 				ConcurrentStack<AbcProcess> process_pool;
 				state.run_abc.run(process_pool);
-				state.extract(assign_map, design, mod);
+				state.extract(design, mod);
 				continue;
 			}
 
@@ -2599,6 +2560,10 @@ struct AbcPass : public Pass {
 				assign_cell_connection_ports(mod, cell_sets, assign_map);
 			}
 
+			// Advance autoidx by the clock domain count for multi-threaded determinism
+			int autoidx_base = autoidx;
+			autoidx.ensure_at_least(autoidx_base + GetSize(assigned_cells));
+
 			// Reserve one core for our main thread, and don't create more worker threads
 			// than ABC runs.
 			int max_threads = assigned_cells.size();
@@ -2636,11 +2601,12 @@ struct AbcPass : public Pass {
 					++work_finished_count;
 				}
 				while (work_finished_by_index[next_state_index_to_process] != nullptr) {
-					work_finished_by_index[next_state_index_to_process]->extract(assign_map, design, mod);
+					work_finished_by_index[next_state_index_to_process]->extract(design, mod);
 					work_finished_by_index[next_state_index_to_process] = nullptr;
 					++next_state_index_to_process;
 				}
-				std::unique_ptr<AbcModuleState> state = std::make_unique<AbcModuleState>(config, initvals, state_index++);
+				std::unique_ptr<AbcModuleState> state = std::make_unique<AbcModuleState>(
+						config, initvals, state_index, autoidx_base + state_index);
 				state->clk_polarity = std::get<0>(it.first);
 				state->clk_sig = assign_map(std::get<1>(it.first));
 				state->en_polarity = std::get<2>(it.first);
@@ -2657,6 +2623,7 @@ struct AbcPass : public Pass {
 					state->run_abc.run(process_pool);
 					work_finished_queue.push_back(std::move(state));
 				}
+				state_index++;
 			}
 			work_queue.close();
 			while (work_finished_count < GetSize(assigned_cells)) {
@@ -2666,7 +2633,7 @@ struct AbcPass : public Pass {
 				++work_finished_count;
 			}
 			while (next_state_index_to_process < GetSize(work_finished_by_index)) {
-				work_finished_by_index[next_state_index_to_process]->extract(assign_map, design, mod);
+				work_finished_by_index[next_state_index_to_process]->extract(design, mod);
 				work_finished_by_index[next_state_index_to_process] = nullptr;
 				++next_state_index_to_process;
 			}

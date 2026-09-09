@@ -49,6 +49,7 @@ yosys_pass(abc
 	LIBRARIES
 		$<${YOSYS_LINK_ABC}:libyosys-abc>
 	REQUIRES
+		libcache
 		read_blif
 	ENABLE_IF
 		YOSYS_ENABLE_ABC
@@ -59,6 +60,8 @@ yosys_pass(abc9_exe
 		${abc_definitions}
 	LIBRARIES
 		$<${YOSYS_LINK_ABC}:libyosys-abc>
+	REQUIRES
+		libcache
 	ENABLE_IF
 		YOSYS_ENABLE_ABC
 )
@@ -83,6 +86,7 @@ yosys_pass(abc9
 		design
 		opt
 		portarcs
+		read_aiger
 		read_verilog
 		scc
 		select
@@ -90,6 +94,7 @@ yosys_pass(abc9
 		submod
 		techmap
 		wbflip
+		write_xaiger
 )
 yosys_pass(abc_new
 	abc_new.cc
@@ -161,13 +166,6 @@ yosys_pass(lut2mux
 )
 yosys_pass(lut2bmux
 	lut2bmux.cc
-)
-yosys_pass(nlutmap
-	nlutmap.cc
-	REQUIRES
-		abc
-		lut2mux
-		opt_clean
 )
 yosys_pass(shregmap
 	shregmap.cc

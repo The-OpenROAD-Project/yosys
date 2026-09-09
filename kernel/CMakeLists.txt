@@ -4,10 +4,10 @@ configure_file(yosys_config.h.in yosys_config.h @ONLY)
 set(cellhelp_sources)
 foreach (library simlib simcells)
 	add_custom_command(
-		DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/cellhelp.py ${CMAKE_SOURCE_DIR}/techlibs/common/${library}.v
+		DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/cellhelp.py ${YOSYS_CMAKE_SOURCE_DIR}/techlibs/common/${library}.v
 		OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${library}_help.inc
 		COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/cellhelp.py
-			${CMAKE_SOURCE_DIR}/techlibs/common/${library}.v
+			${YOSYS_CMAKE_SOURCE_DIR}/techlibs/common/${library}.v
 			> ${CMAKE_CURRENT_BINARY_DIR}/${library}_help.inc
 		VERBATIM
 	)
@@ -80,6 +80,7 @@ yosys_core(kernel
 	threading.h
 	timinginfo.h
 	topo_scc.h
+	unused_bits.h
 	utils.h
 	version.cc
 	yosys.cc
@@ -145,6 +146,7 @@ yosys_core(kernel
 		sigtools.h
 		threading.h
 		timinginfo.h
+		unused_bits.h
 		utils.h
 		yosys.h
 		yosys_common.h
